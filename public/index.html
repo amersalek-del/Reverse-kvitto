@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kvitto &amp; Resa</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23006b4f'/><path d='M10 7h12v18l-3-2-3 2-3-2-3 2z' fill='white'/></svg>" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#rapporter"><span class="logo">K</span> Kvitto &amp; Resa</a>
+      <nav id="nav"></nav>
+      <label class="user">
+        <span class="sr-only">Inloggad som</span>
+        <select id="user-select" aria-label="Inloggad som"></select>
+      </label>
+    </header>
+    <main id="main" tabindex="-1"></main>
+    <dialog id="dialog"><form method="dialog" id="dialog-form"></form></dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
