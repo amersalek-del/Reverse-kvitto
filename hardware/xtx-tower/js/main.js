@@ -1,7 +1,7 @@
 // UI wiring for the XTX Tower mockup: form -> layout -> scene + report.
 
 import { computeLayout, normalizeConfig, DEFAULTS } from './layout.js';
-import { GPUS, BOARDS, PSU_RATINGS, MAINS } from './specs.js';
+import { GPUS, BOARDS, LAYOUTS, PSU_RATINGS, MAINS } from './specs.js';
 
 const STORE_KEY = 'xtx-tower:v1';
 const $ = (sel) => document.querySelector(sel);
@@ -73,8 +73,17 @@ function syncFormDetails(cfg) {
     ? 'Enter the size of your card. Board power is used for the PSU and airflow checks.'
     : `${preset.l} × ${preset.h} × ${preset.t} mm, ${preset.slots}-slot. ${preset.note}`;
   $('#cooler-height').hidden = cfg.cooler !== 'tower';
+  const compact = cfg.layout === 'compact';
+  for (const r of form.elements.psuMode) r.disabled = compact && r.value === 'dual';
+  $('#psu-hint').hidden = !compact;
   for (const out of form.querySelectorAll('output[data-for]')) {
-    out.textContent = `${cfg[out.dataset.for]} mm`;
+    const key = out.dataset.for;
+    if (key === 'gpuLimit') {
+      const base = cfg.gpu === 'custom' ? cfg.gpuWatts : GPUS[cfg.gpu].watts;
+      out.textContent = `${cfg.gpuLimit} % · ${Math.round((base * cfg.gpuLimit) / 100)} W`;
+    } else {
+      out.textContent = `${cfg[key]} mm`;
+    }
   }
 }
 
@@ -91,6 +100,7 @@ form.addEventListener('input', (e) => {
     Object.assign(cfg, { gpuL: from.l, gpuH: from.h, gpuT: from.t, gpuWatts: from.watts, gpuPins: from.pins });
     writeForm(cfg);
   }
+  if (name === 'layout') writeForm(cfg);
   if (name === 'board') {
     cfg.cpuWatts = BOARDS[cfg.board].cpuWatts;
     form.elements.cpuWatts.value = String(cfg.cpuWatts);
@@ -126,7 +136,13 @@ function schedule() {
 function update() {
   layout = computeLayout(cfg);
   saveConfig(cfg);
-  $('#headline').textContent = `${layout.W} × ${layout.D} × ${layout.H} mm · ${layout.volumeL} L · ${layout.n} × RX 7900 XTX`;
+  $('#headline').textContent = `${LAYOUTS[cfg.layout].name} · ${layout.W} × ${layout.D} × ${layout.H} mm · ${layout.volumeL} L · ${layout.n} × RX 7900 XTX`;
+  const otherKey = cfg.layout === 'compact' ? 'stacked' : 'compact';
+  const other = computeLayout({ ...cfg, layout: otherKey });
+  const diff = Math.round((1 - layout.volumeL / other.volumeL) * 100);
+  $('#layout-spec').textContent = `${LAYOUTS[cfg.layout].note} ${layout.W} × ${layout.D} × ${layout.H} mm, ${layout.volumeL} L. `
+    + `${LAYOUTS[otherKey].name} would be ${other.W} × ${other.D} × ${other.H} mm, ${other.volumeL} L`
+    + (diff > 0 ? ` (this is ${diff} % smaller).` : diff < 0 ? ` (${-diff} % smaller).` : '.');
   renderReport(layout);
   if (scene) scene.build(layout);
 }
@@ -251,9 +267,9 @@ function renderReport(L) {
     <h2>Checks <small>${L.warnings.length ? `${L.warnings.length} to look at` : 'all clear'}</small></h2>
     <ul class="warnings">${warnings}</ul>
 
-    <h2>Power <small>recommended ${fmt(b.recommendedWatts)} W total</small></h2>
+    <h2>Power <small>${fmt(b.recommendedWatts)} W keeps it under 80 %</small></h2>
     <table>
-      <tr><td>${L.n} × ${esc(L.card.name)}</td><td class="num">${fmt(b.gpuWatts)} W</td></tr>
+      <tr><td>${L.n} × ${esc(L.card.name)}, ${fmt(b.cardWatts)} W each${L.cfg.gpuLimit < 100 ? ` (${L.cfg.gpuLimit} % limit)` : ''}</td><td class="num">${fmt(b.gpuWatts)} W</td></tr>
       <tr><td>CPU</td><td class="num">${fmt(b.cpuWatts)} W</td></tr>
       <tr><td>Board, RAM, drives, fans</td><td class="num">${fmt(b.baseWatts)} W</td></tr>
       <tr class="total"><td>Sustained DC load</td><td class="num">${fmt(b.dcWatts)} W</td></tr>

@@ -56,6 +56,18 @@
 
         <form id="config" autocomplete="off">
           <fieldset>
+            <legend>Layout</legend>
+            <div class="field">
+              <span id="layout-label" class="sr-only">Layout</span>
+              <div class="seg" role="radiogroup" aria-labelledby="layout-label">
+                <label><input type="radio" name="layout" value="compact" /><span>Compact</span></label>
+                <label><input type="radio" name="layout" value="stacked" /><span>Stacked</span></label>
+              </div>
+            </div>
+            <p id="layout-spec" class="hint"></p>
+          </fieldset>
+
+          <fieldset>
             <legend>Graphics cards</legend>
             <label class="field">
               <span>Card</span>
@@ -78,6 +90,11 @@
                 <label><input type="radio" name="gpuCount" value="4" /><span>4</span></label>
               </div>
             </div>
+            <label class="field range">
+              <span>Power limit per card <output data-for="gpuLimit"></output></span>
+              <input type="range" name="gpuLimit" min="50" max="100" step="5" />
+            </label>
+            <p class="hint">A lower limit shrinks the PSU, the wall draw and the heat. Adrenalin on Windows lets you go about 10 % down; on Linux you can cap lower, to the card's minimum.</p>
             <label class="field range">
               <span>Air gap between cards <output data-for="cardGap"></output></span>
               <input type="range" name="cardGap" min="10" max="60" step="1" />
@@ -120,6 +137,7 @@
                 <label><input type="radio" name="psuMode" value="dual" /><span>Two</span></label>
               </div>
             </div>
+            <p id="psu-hint" class="hint" hidden>The compact base has room for one PSU, standing on its side next to the board.</p>
             <div class="grid">
               <label class="field">
                 <span>Rating, each</span>
@@ -132,7 +150,7 @@
             </div>
             <label class="field range">
               <span>PSU length <output data-for="psuL"></output></span>
-              <input type="range" name="psuL" min="140" max="220" step="5" />
+              <input type="range" name="psuL" min="140" max="230" step="5" />
             </label>
             <label class="field">
               <span>Wall circuit</span>
@@ -146,15 +164,16 @@
 
         <details class="about">
           <summary>How the design works</summary>
-          <p>Three modules stack on a shared <strong>spine</strong> on the left. The spine carries every port (mains, board I/O and all GPU outputs), so all cables leave on one side. It also hides the power cables on their way up to the cards.</p>
+          <p>The modules stack on a shared <strong>spine</strong> on the left. The spine carries every port (mains, board I/O and all GPU outputs), so all cables leave on one side. It also hides the power cables on their way up to the cards.</p>
           <ul>
-            <li><strong>Power module (bottom):</strong> one or two ATX supplies lying flat. They breathe through the floor and their mains inlets face the spine.</li>
-            <li><strong>Board drawer (middle):</strong> the motherboard lies flat on a tray that slides out to the right with the CPU cooler and RAM. Air flows front to back.</li>
-            <li><strong>GPU module (top):</strong> the cards stand upright behind a hinged glass door, each on a PCIe 4.0 riser from the board below. Air enters through the mesh band and side wall, rises through the gaps in front of each card's fans and leaves through the roof fans. The card fins point the same way, so the chimney works with the coolers, not against them.</li>
+            <li><strong>GPU module (top):</strong> the cards stand upright behind a hinged glass door, each on a PCIe 4.0 riser from the board below. Air flows along the gap in front of each card's fans, rises past the fins and leaves through the roof fans.</li>
+            <li><strong>Board drawer:</strong> the motherboard lies flat on a tray that slides out to the right with the CPU cooler and RAM. The lid stays in the case.</li>
+            <li><strong>Compact</strong> has two modules. The single PSU stands on its side next to the board and takes mains from the spine through a short internal extension. The GPU module drops the floor fans and takes air in from the side wall. The risers run just under the drawer lid, over the CPU cooler.</li>
+            <li><strong>Stacked</strong> adds a power module underneath for one or two PSUs, plus a mesh intake band and floor fans under the cards. It's about 170 mm taller but cools better and can split the load over two supplies.</li>
           </ul>
           <h3>How the numbers are worked out</h3>
           <ul>
-            <li>Sustained DC load = card board power + CPU + 60 W for board, RAM and drives + 3 W per fan. Recommended capacity is load x 1.3, which leaves room for short GPU power spikes. Each supply should stay under about 80 %.</li>
+            <li>Sustained DC load = card board power (after the power limit) + CPU + 60 W for board, RAM and drives + 3 W per fan. Each supply should stay under about 80 % so short GPU power spikes have headroom; the recommended capacity is load ÷ 0.8. Above 1600 W, ATX supplies are rare and mostly meant for 230 V.</li>
             <li>With two supplies, PSU A feeds the board and CPU, and every card takes all of its 8-pin plugs from one supply. Join the two with a sync adapter and plug both into the same outlet.</li>
             <li>Wall draw assumes 92 % efficiency at 230 V and 90 % at 120 V. A circuit should stay under 80 % of its breaker rating.</li>
             <li>Riser length follows the cable path from slot to socket, plus 20 mm, rounded up to a stock size.</li>
@@ -162,6 +181,7 @@
           </ul>
           <h3>Card sizes</h3>
           <ul class="sources">
+            <li>XFX Mercury Magnetic Air: 345 × 135 × 68 mm, 3.5-slot. XFX quotes 327 W TGP; reviews measured about 380-393 W board power, so the model budgets 390 W (<a href="https://www.techpowerup.com/review/xfx-radeon-rx-7900-xtx-magnetic-air/2.html">TechPowerUp</a>, <a href="https://www.igorslab.de/en/xfx-mercury-radeon-rx-7900-xtx-magair-in-test-fan-change-and-cooling-to-the-ground-frost/1/">Igor'sLab</a>, <a href="https://www.thefpsreview.com/2024/06/18/xfx-mercury-amd-radeon-rx-7900-xtx-magnetic-air-video-card-review/7">The FPS Review</a>)</li>
             <li>AMD reference: 287 × 123 × 51 mm, 355 W (<a href="https://www.techpowerup.com/301084/amd-radeon-rx-7900-xtx-reference-design-pcb-and-cooler-detailed">TechPowerUp</a>, <a href="https://www.tomshardware.com/reviews/amd-radeon-rx-7900-xtx-and-xt-review-shooting-for-the-top/2">Tom's Hardware</a>)</li>
             <li>Sapphire NITRO+ Vapor-X: 320 × 136 × 72 mm, 420 W primary BIOS (<a href="https://www.kitguru.net/components/graphic-cards/dominic-moass/sapphire-rx-7900-xtx-nitro-review/2">KitGuru</a>)</li>
             <li>ASUS TUF Gaming OC: 353 × 158 × 73 mm (<a href="https://www.asus.com/motherboards-components/graphics-cards/tuf-gaming/tuf-rx7900xtx-o24g-gaming/techspec/">ASUS</a>). ASUS publishes no board power, so the model assumes 400 W.</li>

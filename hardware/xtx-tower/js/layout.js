@@ -4,19 +4,18 @@
 // Y is up with the floor at y = 0, and Z runs from the rear wall (z = 0) to
 // the glass at the front (z = D).
 
-import { GPUS, BOARDS, SLOT_SETS, MAINS, RISER_LENGTHS, FAN_FLOW } from './specs.js';
+import { GPUS, BOARDS, LAYOUTS, SLOT_SETS, MAINS, RISER_LENGTHS, FAN_FLOW } from './specs.js';
 
 export const C = Object.freeze({
   wall: 2,
   glass: 4,
-  spine: 46,          // spine column: rear I/O, card brackets, cable chase
   feet: 20,
   fanT: 25,
   slotPitch: 20.32,
   fingerStart: 42,    // card edge fingers start ~42 mm from the bracket
   fingerLen: 89,      // x16 connector length
   riserSocketH: 14,
-  plenumH: 32,        // mesh intake band under the GPU chamber
+  plenumH: 32,        // mesh intake band under the GPU chamber (stacked)
   cableTop: 45,       // room above the cards for 8-pin plugs and bends
   tailGap: 40,        // card tail to right wall (side fans live here)
   rearGap: 18,        // rear card backplate to rear wall, minimum
@@ -27,13 +26,16 @@ export const C = Object.freeze({
   pumpH: 60,
   radT: 27,
   psu: Object.freeze({ w: 150, h: 86 }),
+  psuStrip: 22,       // compact: room beside the PSU for its fan and cables
   airRhoCp: 1206,     // J/(m3 K) for air at ~20 C
   fanEfficiency: 0.5, // share of free-air flow left after mesh and fins
 });
 
 export const DEFAULTS = Object.freeze({
-  gpu: 'reference',
+  layout: 'compact',
+  gpu: 'magair',
   gpuCount: 3,
+  gpuLimit: 100,
   gpuL: 300, gpuH: 130, gpuT: 60, gpuWatts: 375, gpuPins: 3,
   cardGap: 30,
   glassGap: 30,
@@ -41,10 +43,10 @@ export const DEFAULTS = Object.freeze({
   cooler: 'tower',
   coolerH: 160,
   cpuWatts: 250,
-  psuMode: 'dual',
-  psuWatts: 1000,
-  psuPcie: 6,
-  psuL: 180,
+  psuMode: 'single',
+  psuWatts: 1600,
+  psuPcie: 9,
+  psuL: 200,
   mains: '230-10',
 });
 
@@ -53,8 +55,8 @@ const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
 const round = (v, step = 1) => Math.round(v / step) * step;
 
 export function resolveCard(cfg) {
-  const preset = GPUS[cfg.gpu] ?? GPUS.reference;
-  if (cfg.gpu !== 'custom') return { key: cfg.gpu in GPUS ? cfg.gpu : 'reference', ...preset };
+  const preset = GPUS[cfg.gpu] ?? GPUS.magair;
+  if (cfg.gpu !== 'custom') return { key: cfg.gpu in GPUS ? cfg.gpu : 'magair', ...preset };
   return {
     ...preset,
     key: 'custom',
@@ -68,6 +70,9 @@ export function resolveCard(cfg) {
 
 export function normalizeConfig(input = {}) {
   const cfg = { ...DEFAULTS, ...input };
+  if (!(cfg.layout in LAYOUTS)) cfg.layout = 'compact';
+  if (!(cfg.gpu in GPUS)) cfg.gpu = 'magair';
+  cfg.gpuLimit = clamp(Math.round(num(cfg.gpuLimit, 100)), 50, 100);
   cfg.gpuCount = clamp(Math.round(num(cfg.gpuCount, 3)), 1, 4);
   cfg.cardGap = clamp(num(cfg.cardGap, 30), 5, 80);
   cfg.glassGap = clamp(num(cfg.glassGap, 30), 5, 80);
@@ -75,10 +80,11 @@ export function normalizeConfig(input = {}) {
   if (cfg.cooler !== 'aio') cfg.cooler = 'tower';
   cfg.coolerH = clamp(num(cfg.coolerH, 160), 100, 180);
   cfg.cpuWatts = clamp(num(cfg.cpuWatts, 250), 35, 600);
-  if (cfg.psuMode !== 'single') cfg.psuMode = 'dual';
-  cfg.psuWatts = clamp(num(cfg.psuWatts, 1000), 450, 2800);
-  cfg.psuPcie = clamp(Math.round(num(cfg.psuPcie, 6)), 0, 16);
-  cfg.psuL = clamp(num(cfg.psuL, 180), 140, 230);
+  // The compact base only has room for one supply, on its side.
+  if (cfg.psuMode !== 'dual' || cfg.layout === 'compact') cfg.psuMode = 'single';
+  cfg.psuWatts = clamp(num(cfg.psuWatts, 1600), 450, 2800);
+  cfg.psuPcie = clamp(Math.round(num(cfg.psuPcie, 9)), 0, 16);
+  cfg.psuL = clamp(num(cfg.psuL, 200), 140, 230);
   if (!(cfg.mains in MAINS)) cfg.mains = '230-10';
   return cfg;
 }
@@ -118,57 +124,83 @@ export function computeLayout(input) {
   const card = resolveCard(cfg);
   const board = BOARDS[cfg.board];
   const mains = MAINS[cfg.mains];
+  const mode = LAYOUTS[cfg.layout];
+  const compact = cfg.layout === 'compact';
   const n = cfg.gpuCount;
-  const { wall, spine } = C;
+  const { wall } = C;
+  const spine = mode.spine;
+  const plenumH = compact ? 0 : C.plenumH;
+  const floorLayer = compact ? 0 : C.fanT;
+  const cardWatts = Math.round((card.watts * cfg.gpuLimit) / 100);
 
   // ---- Footprint -------------------------------------------------------
-  const drawerFront = cfg.cooler === 'aio' ? C.radT + C.fanT + 8 : C.fanT + 8;
-  const depthDrawer = 2 * wall + 12 + board.l + 12 + drawerFront;
+  // Stacked: front intake fans (or an AIO radiator) inside the drawer front.
+  // Compact: the tower cooler breathes through the front mesh directly.
+  const radFront = C.radT + C.fanT + 8;
+  const drawerFront = cfg.cooler === 'aio' ? radFront : compact ? 0 : C.fanT + 8;
+  const boardMargin = compact ? 6 : 12;
+  const depthDrawer = 2 * wall + 2 * boardMargin + board.l + drawerFront;
   const stack = n * card.t + (n - 1) * cfg.cardGap;
   const depthGpu = wall + C.rearGap + stack + cfg.glassGap + C.glass;
-  const depthPsu = 2 * wall + (cfg.psuMode === 'dual' ? 2 * C.psu.w + 36 : C.psu.w + 24);
+  const depthPsu = compact
+    ? 2 * wall + cfg.psuL + 12
+    : 2 * wall + (cfg.psuMode === 'dual' ? 2 * C.psu.w + 36 : C.psu.w + 24);
   const D = Math.ceil(Math.max(depthDrawer, depthGpu, depthPsu));
 
+  const psuStripW = C.psu.h + C.psuStrip;
   const W = Math.ceil(Math.max(
     spine + card.l + C.tailGap + wall,
-    spine + 4 + board.w + 74 + wall,
-    spine + cfg.psuL + 70 + wall,
-    spine + C.riserBay + 130 + wall,
+    compact
+      ? spine + 4 + board.w + 10 + psuStripW + wall
+      : spine + 4 + board.w + 74 + wall,
+    compact ? 0 : spine + cfg.psuL + 70 + wall,
+    compact ? 0 : spine + C.riserBay + 130 + wall,
   ));
 
-  // ---- Power module (bottom) --------------------------------------------
-  const hPower = 2 * wall + 8 + C.psu.h + 14;
+  // ---- Power module (stacked only) ---------------------------------------
+  const hPower = compact ? 0 : 2 * wall + 8 + C.psu.h + 14;
   const powerY0 = C.feet;
-  const psuCount = cfg.psuMode === 'dual' ? 2 : 1;
-  const psus = [];
-  for (let i = 0; i < psuCount; i++) {
-    const zc = psuCount === 1 ? D / 2 : D / 2 + (i === 0 ? 1 : -1) * (C.psu.w / 2 + 6);
-    psus.push({ x0: spine, y0: powerY0 + wall + 8, z0: zc - C.psu.w / 2, l: cfg.psuL, h: C.psu.h, w: C.psu.w });
-  }
+  const drawerY0 = powerY0 + hPower;
 
-  // ---- Board drawer (middle) --------------------------------------------
+  // ---- Board drawer -----------------------------------------------------
   const compH = cfg.cooler === 'aio' ? C.pumpH : cfg.coolerH;
   const innerComp = C.trayH + C.standoff + C.pcb + compH + 14;
   const frontFanSize = cfg.cooler === 'aio' || innerComp < 146 ? 120 : 140;
-  const hDrawer = Math.ceil(2 * wall + Math.max(innerComp, frontFanSize + 8));
-  const drawerY0 = powerY0 + hPower;
+  const innerFront = drawerFront > 0 ? frontFanSize + 8 : 0;
+  const innerPsu = compact ? C.psu.w + 12 : 0;
+  const hDrawer = Math.ceil(2 * wall + Math.max(innerComp, innerFront, innerPsu));
   const boardX0 = spine + 4;
-  const boardZ0 = wall + 12;
+  const boardZ0 = wall + boardMargin;
   const boardTop = drawerY0 + wall + C.trayH + C.standoff + C.pcb;
 
-  const usableX = W - spine - 2 * wall;
-  let drawerFans;
+  // Supplies. `s*` are the box sizes along X/Y/Z; `inlet` is the face with
+  // the mains socket and `fan` the face the PSU fan breathes through.
+  const psus = [];
+  if (compact) {
+    psus.push({ x0: W - wall - psuStripW + 4, y0: drawerY0 + wall + 6, z0: wall + 6, sx: C.psu.h, sy: C.psu.w, sz: cfg.psuL, inlet: '-z', fan: '+x' });
+  } else {
+    const count = cfg.psuMode === 'dual' ? 2 : 1;
+    for (let i = 0; i < count; i++) {
+      const zc = count === 1 ? D / 2 : D / 2 + (i === 0 ? 1 : -1) * (C.psu.w / 2 + 6);
+      psus.push({ x0: spine, y0: powerY0 + wall + 8, z0: zc - C.psu.w / 2, sx: cfg.psuL, sy: C.psu.h, sz: C.psu.w, inlet: '-x', fan: '-y' });
+    }
+  }
+
+  const fanSpanX0 = spine + wall;
+  const fanSpanX1 = compact ? W - wall - psuStripW : W - wall;
+  const usableX = fanSpanX1 - fanSpanX0;
+  let drawerFans = [];
   let radiator = null;
   if (cfg.cooler === 'aio') {
     const radFans = clamp(Math.floor((usableX - 40) / 120), 2, 3);
     const len = radFans * 120 + 37;
-    const x0 = spine + wall + (usableX - len) / 2;
+    const x0 = fanSpanX0 + (usableX - len) / 2;
     radiator = { x0, len, fans: radFans, z1: D - wall - 2 };
     drawerFans = Array.from({ length: radFans }, (_, i) => ({ x: x0 + 18.5 + 60 + i * 120, size: 120 }));
-  } else {
+  } else if (!compact) {
     const count = clamp(Math.floor((usableX - 10) / (frontFanSize + 6)), 1, 3);
     const pitch = frontFanSize + 6;
-    const cx = spine + wall + usableX / 2;
+    const cx = fanSpanX0 + usableX / 2;
     drawerFans = Array.from({ length: count }, (_, i) => ({ x: cx + (i - (count - 1) / 2) * pitch, size: frontFanSize }));
   }
 
@@ -177,7 +209,7 @@ export function computeLayout(input) {
 
   // ---- GPU module (top) -------------------------------------------------
   const gpuY0 = drawerY0 + hDrawer;
-  const chamberY0 = gpuY0 + C.plenumH + C.fanT + wall;
+  const chamberY0 = gpuY0 + plenumH + floorLayer + wall;
   const cardY0 = chamberY0 + C.riserSocketH;
   const cardTop = cardY0 + card.h;
   const hGpu = Math.ceil(cardTop + C.cableTop + C.fanT + wall - gpuY0);
@@ -190,34 +222,39 @@ export function computeLayout(input) {
   }
 
   // Front card pairs with the front-most slot so the risers never cross.
+  // Stacked: the riser bends in the plenum under the GPU chamber.
+  // Compact: it rises to just under the drawer lid, runs over the CPU
+  // cooler to sit under its card, then goes up through the lid.
   const slotsFrontFirst = [...slotNumbers].sort((a, b) => b - a);
   const fingerX = spine + C.fingerStart + C.fingerLen / 2;
+  const lidUnderside = gpuY0 - wall;
   const risers = cards.map((c, i) => {
     const slot = slotsFrontFirst[i];
     const from = { x: boardX0 + C.fingerStart + C.fingerLen / 2, y: boardTop + 11, z: boardZ0 + slotV(slot) };
     const to = { x: fingerX, y: chamberY0, z: c.zPcb };
-    const points = [
-      from,
-      { x: from.x, y: gpuY0 - 6, z: from.z },
-      { x: to.x, y: to.y - 22, z: to.z },
-      to,
-    ];
+    const points = compact
+      ? [from, { x: from.x, y: lidUnderside - 6, z: from.z }, { x: to.x, y: lidUnderside - 6, z: to.z }, to]
+      : [from, { x: from.x, y: gpuY0 - 6, z: from.z }, { x: to.x, y: to.y - 22, z: to.z }, to];
+    const through = compact ? { x: to.x, z: to.z } : { x: from.x, z: from.z };
     const length = Math.ceil(riserLength(points) + 20);
     const buy = RISER_LENGTHS.find((l) => l >= length) ?? null;
-    return { card: i, slot, lanes: laneFor(board, n, slot, slotNumbers), points, length, buy };
+    return { card: i, slot, lanes: laneFor(board, n, slot, slotNumbers), points, through, length, buy };
   });
 
-  const floorFans = fanGrid(spine + C.riserBay, W - wall, wall, D - C.glass);
+  const noFans = { size: 140, fans: [] };
+  const floorFans = compact ? noFans : fanGrid(spine + C.riserBay, W - wall, wall, D - C.glass);
   const roofFans = fanGrid(spine + wall, W - wall, wall, D - C.glass);
   const sideFans = fanGrid(wall, D - C.glass, chamberY0, cardTop + C.cableTop - 4);
 
   // ---- Budgets ----------------------------------------------------------
+  const rearFan = !compact;
   const fanCount = floorFans.fans.length + roofFans.fans.length + sideFans.fans.length
-    + drawerFans.length + 1 /* drawer rear */ + (cfg.cooler === 'tower' ? 1 : 0);
+    + drawerFans.length + (rearFan ? 1 : 0) + (cfg.cooler === 'tower' ? 1 : 0);
   const baseWatts = 60 + fanCount * 3;
-  const gpuWatts = n * card.watts;
+  const gpuWatts = n * cardWatts;
   const dcWatts = gpuWatts + cfg.cpuWatts + baseWatts;
-  const recommendedWatts = Math.ceil((dcWatts * 1.3) / 50) * 50;
+  // Capacity that keeps the sustained load at or under 80 %.
+  const recommendedWatts = Math.ceil(dcWatts / 0.8 / 50) * 50;
 
   const supplies = [];
   if (cfg.psuMode === 'single') {
@@ -228,7 +265,7 @@ export function computeLayout(input) {
     // Each card takes all its 8-pin plugs from one supply; fill the lighter one.
     for (const c of cards) {
       const target = supplies[1].load < supplies[0].load ? supplies[1] : supplies[0];
-      target.load += card.watts;
+      target.load += cardWatts;
       target.cards.push(c.index);
     }
   }
@@ -236,6 +273,9 @@ export function computeLayout(input) {
     s.pct = s.load / s.rating;
     s.pinsNeeded = s.cards.length * card.pins;
     s.status = s.pct <= 0.8 ? 'ok' : s.pct <= 0.9 ? 'caution' : 'bad';
+    // Per-card cap that would bring this supply down to 80 %.
+    const other = s.load - s.cards.length * cardWatts;
+    s.capForOk = s.cards.length ? Math.floor((0.8 * s.rating - other) / s.cards.length / 5) * 5 : null;
   }
 
   const efficiency = mains.volts >= 200 ? 0.92 : 0.9;
@@ -271,23 +311,24 @@ export function computeLayout(input) {
   const warn = (level, text) => warnings.push({ level, text });
   for (const s of supplies) {
     if (s.status !== 'ok') {
+      const fixes = [];
+      if (s.capForOk && s.capForOk < cardWatts && s.capForOk >= card.watts * 0.5) fixes.push(`cap each card at about ${s.capForOk} W`);
+      fixes.push('use a bigger supply');
+      if (compact) fixes.push('switch to the stacked layout with two supplies');
       warn(s.status === 'bad' ? 'bad' : 'caution',
-        `${s.name} runs at ${Math.round(s.pct * 100)} % of ${s.rating} W. Keep sustained load under about 80 % so the 7900 XTX's short power spikes have headroom.`);
+        `${s.name} runs at ${Math.round(s.pct * 100)} % of ${s.rating} W. Keep sustained load under about 80 % so the cards' short power spikes have headroom: ${joinOr(fixes)}.`);
     }
     if (s.pinsNeeded > cfg.psuPcie) {
       warn('bad', `${s.name} needs ${s.pinsNeeded} PCIe 8-pin outputs but has ${cfg.psuPcie}. Use one cable per 8-pin plug, not daisy-chained pigtails.`);
     }
   }
-  if (cfg.psuMode === 'single' && dcWatts * 1.3 > cfg.psuWatts && supplies[0].status === 'ok') {
-    warn('caution', `Recommended capacity with headroom is ${recommendedWatts} W.`);
-  }
   if (circuit.status === 'bad') {
-    warn('bad', `At the wall this draws about ${circuit.wallWatts} W (${circuit.amps} A), over 80 % of a ${mains.label} circuit. Use a dedicated circuit or cap the cards' power limit.`);
+    warn('bad', `At the wall this draws about ${circuit.wallWatts} W (${circuit.amps} A), over 80 % of a ${mains.label} circuit. Use a dedicated circuit or cap the cards' power.`);
   } else if (circuit.status === 'caution') {
     warn('caution', `About ${circuit.wallWatts} W (${circuit.amps} A) at the wall leaves little room on a ${mains.label} circuit for anything else.`);
   }
   if (airflow.status !== 'ok') {
-    warn(airflow.status, `GPU exhaust air runs roughly ${airflow.deltaT} °C above room temperature. Faster fans, wider card gaps or a power limit will help.`);
+    warn(airflow.status, `GPU exhaust air runs roughly ${airflow.deltaT} °C above room temperature. Faster fans, wider card gaps or a power cap will help.`);
   }
   if (cfg.cardGap < 20) warn('caution', `A ${cfg.cardGap} mm gap starves the fans of the card behind. 25-35 mm works well for open-air coolers.`);
   if (cfg.glassGap < 20) warn('caution', `The front card's fans sit ${cfg.glassGap} mm from the glass. Give them at least 20 mm.`);
@@ -297,10 +338,11 @@ export function computeLayout(input) {
       warn('caution', `GPU ${r.card + 1}'s riser needs about ${r.length} mm. Long PCIe 4.0 risers can drop to errors; buy a shielded Gen4 riser or set the slot to Gen3 in BIOS.`);
     }
   }
-  if (floorFans.fans.length === 0) warn('caution', 'No room for floor intake fans in the GPU module. Make the case wider.');
+  if (!compact && floorFans.fans.length === 0) warn('caution', 'No room for floor intake fans in the GPU module. Make the case wider.');
+  if (compact && cfg.cooler === 'tower' && cfg.coolerH > 165) warn('caution', `A ${cfg.coolerH} mm cooler leaves the risers little room under the drawer lid. 160 mm or lower is easier.`);
 
   return {
-    cfg, card, board, n,
+    cfg, card, board, n, mode: cfg.layout, compact, spine, cardWatts,
     W, D, H,
     volumeL: Math.round((W * D * H) / 1e5) / 10,
     power: { y0: powerY0, h: hPower, psus },
@@ -310,17 +352,22 @@ export function computeLayout(input) {
       slots: slotNumbers.map((k) => ({ number: k, z: boardZ0 + slotV(k) })),
       allSlots: [1, 2, 3, 4, 5, 6, 7].map((k) => ({ number: k, z: boardZ0 + slotV(k), used: slotNumbers.includes(k) })),
       cooler: cfg.cooler, coolerH: cfg.coolerH,
-      fans: drawerFans, radiator,
+      fans: drawerFans, radiator, rearFan,
     },
     gpu: {
-      y0: gpuY0, h: hGpu, chamberY0, cardY0, cardTop,
+      y0: gpuY0, h: hGpu, plenumH, chamberY0, cardY0, cardTop,
       cards, floorFans, roofFans, sideFans,
     },
     risers,
-    budget: { gpuWatts, cpuWatts: cfg.cpuWatts, baseWatts, dcWatts, recommendedWatts, supplies, circuit, pinsTotal: n * card.pins },
+    budget: { cardWatts, gpuWatts, cpuWatts: cfg.cpuWatts, baseWatts, dcWatts, recommendedWatts, supplies, circuit, pinsTotal: n * card.pins },
     airflow,
     warnings,
   };
+}
+
+function joinOr(items) {
+  if (items.length < 2) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
 }
 
 function laneFor(board, n, slot, slotNumbers) {

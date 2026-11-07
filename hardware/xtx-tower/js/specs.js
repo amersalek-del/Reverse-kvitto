@@ -4,6 +4,13 @@
 // measured in reviews. Check your exact card before cutting anything.
 
 export const GPUS = {
+  magair: {
+    name: 'XFX Mercury Magnetic Air',
+    l: 345, h: 135, t: 68, slots: 3.5,
+    watts: 390, pins: 3,
+    note: 'XFX quotes 327 W TGP; reviews measured about 380-393 W board power, so the model budgets 390 W. 3 × 8-pin.',
+    style: { shroud: '#16171a', trim: '#9aa0a8', accent: '#e9edf2', fanRing: '#2b2e33' },
+  },
   reference: {
     name: 'AMD reference (MBA)',
     l: 287, h: 123, t: 51, slots: 2.5,
@@ -67,7 +74,20 @@ export const BOARDS = {
 // Expansion slot numbers (1 = closest to the CPU) used for 1-4 cards.
 export const SLOT_SETS = [[1], [1, 4], [1, 4, 7], [1, 3, 5, 7]];
 
-export const PSU_RATINGS = [850, 1000, 1200, 1300, 1500, 1600];
+export const PSU_RATINGS = [850, 1000, 1200, 1300, 1500, 1600, 2000];
+
+export const LAYOUTS = {
+  compact: {
+    name: 'Compact',
+    spine: 30,
+    note: 'Two modules. One PSU stands on its side next to the board, the GPU module takes air in from the side.',
+  },
+  stacked: {
+    name: 'Stacked',
+    spine: 46,
+    note: 'Three modules with a separate power module for one or two PSUs and floor intake under the cards.',
+  },
+};
 
 export const MAINS = {
   '230-10': { volts: 230, amps: 10, label: '230 V / 10 A' },

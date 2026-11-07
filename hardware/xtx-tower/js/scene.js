@@ -447,7 +447,7 @@ export class TowerScene {
   // Dark seam along the top edge of a module so the stack reads as three
   // separate boxes.
   seam(g, L, y) {
-    const s = C.spine;
+    const s = L.spine;
     addBox(g, this.mats.seam, s, y - 1, L.D - 0.6, L.W - s, 2, 1.4);
     addBox(g, this.mats.seam, L.W - 0.6, y - 1, 0, 1.4, 2, L.D);
     addBox(g, this.mats.seam, -0.6, y - 1, 0, 1.4, 2, L.D);
@@ -480,12 +480,19 @@ export class TowerScene {
     const g = this.g.spine;
     const m = this.mats;
     const { W, D, H } = L;
-    const s = C.spine;
+    const s = L.spine;
     const y0 = C.feet;
-    const info = { title: 'Spine', detail: 'Every port exits on this side: mains inlet, board I/O and all GPU outputs. The hollow column doubles as the cable chase from the PSUs to the cards. Put it towards the wall.' };
+    const info = { title: 'Spine', detail: `${s} mm column. Every port exits on this side: mains inlet, board I/O and all GPU outputs. The hollow column doubles as the cable chase from the PSU to the cards. Put it towards the wall.` };
 
     const holes = [];
-    for (const p of L.power.psus) holes.push({ z0: p.z0 + 12, z1: p.z0 + p.w - 12, y0: p.y0 + 10, y1: p.y0 + p.h - 10 });
+    for (const p of L.power.psus) {
+      if (p.inlet === '-x') holes.push({ z0: p.z0 + 12, z1: p.z0 + p.sz - 12, y0: p.y0 + 10, y1: p.y0 + p.sy - 10 });
+    }
+    // Compact: the PSU sits inside the drawer, so the spine carries a mains
+    // inlet that feeds it through a short internal extension.
+    const iecY = L.drawer.board.top + 62;
+    const iec = L.compact ? { z0: 22, z1: 58, y0: iecY, y1: iecY + 28 } : null;
+    if (iec) holes.push(iec);
     const b = L.drawer.board;
     holes.push({ z0: b.z0 + 8, z1: b.z0 + 168, y0: b.top + 1, y1: b.top + 45 });
     const cards = L.gpu.cards;
@@ -505,6 +512,14 @@ export class TowerScene {
     addBox(g, m.trim, 0, y0, 0, s, H - y0, 3, { radius: 1.5, shell: true, info, cast: true });
     addBox(g, m.trim, 0, H - 3, 0, s, 3, D, { radius: 1.5, shell: true, info, cast: true });
     plateWithHoles(g, m.inner, s - 2, 2, 3, D - 3, y0, H - 3, holes);
+    if (iec) {
+      const ig = new THREE.Group();
+      ig.userData.info = { title: 'Mains inlet', detail: 'A short internal extension cable runs from here to the PSU standing in the drawer.' };
+      g.add(ig);
+      addBox(ig, m.steel, s - 3, iec.y0, iec.z0, 1, iec.y1 - iec.y0, iec.z1 - iec.z0);
+      addBox(ig, m.port, s - 6, iec.y0 + 3, iec.z0 + 3, 3, 20, 24, { radius: 2 });
+      addBox(ig, m.port, s - 6.5, iec.y0 + 6, iec.z1 - 9, 3, 14, 6, { radius: 1 });
+    }
 
     // Power button and two USB-C ports on the spine's front face.
     const btn = addCylinder(g, m.silver, 7, 3, s / 2, H - 38, D + 1, 'z', 32);
@@ -520,13 +535,15 @@ export class TowerScene {
     const m = this.mats;
     const { W, D } = L;
     const { y0, h } = L.power;
-    const s = C.spine, w = C.wall;
-    const info = { title: 'Power module', detail: `${W} × ${D} × ${h} mm. ${L.power.psus.length === 2 ? 'Two ATX supplies side by side' : 'One ATX supply'}, mains inlet out through the spine, fans breathe through the floor.` };
+    const s = L.spine, w = C.wall;
 
     for (const [fx, fz] of [[60, 50], [W - 60, 50], [60, D - 50], [W - 60, D - 50]]) {
       const f = addCylinder(g, m.rubber, 16, C.feet, fx, C.feet / 2, fz, 'y', 28);
       f.castShadow = true;
     }
+    if (L.compact) return;
+
+    const info = { title: 'Power module', detail: `${W} × ${D} × ${h} mm. ${L.power.psus.length === 2 ? 'Two ATX supplies side by side' : 'One ATX supply'}, mains inlet out through the spine, fans breathe through the floor.` };
     this.meshPanel(g, 'xz', s, 0, W - s, D, y0 + 0.5, info);
     addBox(g, m.chassis, s, y0 + h - w, 0, W - s, w, D, { shell: true, info, cast: true });
     addBox(g, m.chassis, s, y0, D - w, W - s, h, w, { radius: 1, shell: true, info, cast: true });
@@ -534,40 +551,74 @@ export class TowerScene {
     this.meshPanel(g, 'xy', s, y0, W - s, h, 0.5, info);
     addBox(g, m.trim, W - 10, y0, D - 10, 10, h, 10, { radius: 2, shell: true, cast: true });
     this.seam(g, L, y0 + h);
-
-    const logo = new THREE.Mesh(new THREE.PlaneGeometry(220, 27.5), this.textMat('XTX TOWER'));
-    logo.position.set(s + (W - s) / 2, y0 + h / 2, D + 0.4);
-    logo.raycast = () => {};
-    g.add(logo);
-    addBox(g, m.trim, s + 20, y0 + 10, D, W - s - 40, 1.2, 0.6);
+    this.logo(g, L, y0 + h / 2);
 
     const names = L.power.psus.length === 2 ? ['PSU A', 'PSU B'] : ['PSU'];
-    L.power.psus.forEach((p, i) => {
-      const supply = L.budget.supplies[i];
-      const feeds = [supply.feedsBoard ? 'board + CPU' : null, ...supply.cards.map((c) => `GPU ${c + 1}`)].filter(Boolean).join(', ');
-      const pInfo = { title: `${names[i]}: ${supply.rating} W ATX`, detail: `Feeds ${feeds}. Sustained load about ${Math.round(supply.load)} W (${Math.round(supply.pct * 100)} %). Needs ${supply.pinsNeeded} × PCIe 8-pin.` };
-      const grp = new THREE.Group();
-      grp.userData.info = pInfo;
-      g.add(grp);
-      addBox(grp, m.plastic, p.x0, p.y0, p.z0, p.l, p.h, p.w, { radius: 2.5 });
-      // Mains inlet and switch on the end facing the spine.
-      addBox(grp, m.steel, p.x0 - 0.5, p.y0 + 6, p.z0 + 8, 1, p.h - 12, p.w - 16);
-      addBox(grp, m.port, p.x0 - 2, p.y0 + p.h / 2 - 12, p.z0 + p.w / 2 - 22, 2, 24, 30, { radius: 2 });
-      addBox(grp, m.port, p.x0 - 2.5, p.y0 + p.h / 2 - 8, p.z0 + p.w / 2 + 16, 2.5, 16, 10, { radius: 1.5 });
-      // Modular sockets on the far end.
-      const cols = 6, rows = 2;
+    L.power.psus.forEach((p, i) => this.buildPsu(g, L, p, L.budget.supplies[i], names[i]));
+  }
+
+  logo(g, L, y) {
+    const s = L.spine;
+    const logo = new THREE.Mesh(new THREE.PlaneGeometry(220, 27.5), this.textMat('XTX TOWER'));
+    logo.position.set(s + (L.W - s) / 2, y, L.D + 0.4);
+    logo.raycast = () => {};
+    g.add(logo);
+  }
+
+  buildPsu(g, L, p, supply, name) {
+    const m = this.mats;
+    const feeds = [supply.feedsBoard ? 'board + CPU' : null, ...supply.cards.map((c) => `GPU ${c + 1}`)].filter(Boolean).join(', ');
+    const where = p.inlet === '-z'
+      ? ' Stands on its side next to the board and breathes through the right-hand mesh.'
+      : '';
+    const grp = new THREE.Group();
+    grp.userData.info = { title: `${name}: ${supply.rating} W ATX`, detail: `Feeds ${feeds}. Sustained load about ${Math.round(supply.load)} W (${Math.round(supply.pct * 100)} %). Needs ${supply.pinsNeeded} × PCIe 8-pin.${where}` };
+    g.add(grp);
+    addBox(grp, m.plastic, p.x0, p.y0, p.z0, p.sx, p.sy, p.sz, { radius: 2.5 });
+
+    if (p.inlet === '-x') {
+      // Mains inlet and switch on the end facing the spine, sockets on the far end.
+      addBox(grp, m.steel, p.x0 - 0.5, p.y0 + 6, p.z0 + 8, 1, p.sy - 12, p.sz - 16);
+      addBox(grp, m.port, p.x0 - 2, p.y0 + p.sy / 2 - 12, p.z0 + p.sz / 2 - 22, 2, 24, 30, { radius: 2 });
+      addBox(grp, m.port, p.x0 - 2.5, p.y0 + p.sy / 2 - 8, p.z0 + p.sz / 2 + 16, 2.5, 16, 10, { radius: 1.5 });
+      const cols = 6;
       for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-          addBox(grp, m.port, p.x0 + p.l, p.y0 + 14 + r * 30, p.z0 + 12 + c * ((p.w - 24) / cols), 1.5, 22, (p.w - 24) / cols - 4);
+        for (let r = 0; r < 2; r++) {
+          addBox(grp, m.port, p.x0 + p.sx, p.y0 + 14 + r * 30, p.z0 + 12 + c * ((p.sz - 24) / cols), 1.5, 22, (p.sz - 24) / cols - 4);
         }
       }
-      const label = new THREE.Mesh(new THREE.PlaneGeometry(90, 45),
-        this.textMat(`${supply.rating} W`, { w: 512, h: 256, font: '700 120px system-ui, sans-serif', color: '#c9ced6', spacing: 4 }));
-      label.rotation.x = -Math.PI / 2;
-      label.position.set(p.x0 + p.l / 2, p.y0 + p.h + 0.3, p.z0 + p.w / 2);
-      label.raycast = () => {};
-      grp.add(label);
-    });
+    } else {
+      // On its side: inlet at the rear end, sockets at the front end, fan
+      // on the face towards the right wall.
+      addBox(grp, m.steel, p.x0 + 6, p.y0 + 8, p.z0 - 0.5, p.sx - 12, p.sy - 16, 1);
+      addBox(grp, m.port, p.x0 + p.sx / 2 - 15, p.y0 + 18, p.z0 - 2, 30, 24, 2, { radius: 2 });
+      addBox(grp, m.port, p.x0 + p.sx / 2 - 5, p.y0 + 50, p.z0 - 2.5, 10, 16, 2.5, { radius: 1.5 });
+      const rows = 6;
+      for (let c = 0; c < 2; c++) {
+        for (let r = 0; r < rows; r++) {
+          addBox(grp, m.port, p.x0 + 12 + c * 34, p.y0 + 12 + r * ((p.sy - 24) / rows), p.z0 + p.sz, 26, (p.sy - 24) / rows - 4, 1.5);
+        }
+      }
+      const fx = p.x0 + p.sx + 0.4, fy = p.y0 + p.sy / 2, fz = p.z0 + p.sz / 2;
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(62, 48), m.hole);
+      disc.rotation.y = Math.PI / 2;
+      disc.position.set(fx, fy, fz);
+      grp.add(disc);
+      for (const r of [22, 40, 58]) {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 1.1, 6, 48), m.steel);
+        ring.rotation.y = Math.PI / 2;
+        ring.position.set(fx + 0.6, fy, fz);
+        grp.add(ring);
+      }
+    }
+    const lw = Math.min(90, p.sx - 6);
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(lw, lw / 2),
+      this.textMat(`${supply.rating} W`, { w: 512, h: 256, font: '700 120px system-ui, sans-serif', color: '#c9ced6', spacing: 4 }));
+    label.rotation.x = -Math.PI / 2;
+    if (p.inlet === '-z') label.rotation.z = Math.PI / 2;
+    label.position.set(p.x0 + p.sx / 2, p.y0 + p.sy + 0.3, p.z0 + p.sz / 2);
+    label.raycast = () => {};
+    grp.add(label);
   }
 
   buildDrawer(L) {
@@ -576,21 +627,36 @@ export class TowerScene {
     const { W, D } = L;
     const dr = L.drawer;
     const { y0, h } = dr;
-    const s = C.spine, w = C.wall;
+    const s = L.spine, w = C.wall;
     const b = dr.board;
-    const info = { title: 'Board drawer', detail: `${W} × ${D} × ${h} mm. The motherboard lies flat on a tray that slides out to the right. Rear I/O lines up with the spine.` };
+    const info = L.compact
+      ? { title: 'Base drawer', detail: `${W} × ${D} × ${h} mm. The motherboard lies flat with the PSU on its side beside it. The whole tray slides out to the right; rear I/O lines up with the spine.` }
+      : { title: 'Board drawer', detail: `${W} × ${D} × ${h} mm. The motherboard lies flat on a tray that slides out to the right. Rear I/O lines up with the spine.` };
 
     // The lid stays in the case as a sleeve; only the tray slides out.
     const sleeve = this.g.sleeve;
     addBox(sleeve, m.chassis, s, y0 + h - w, 0, W - s, w, D, { shell: true, info, cast: true });
     this.seam(sleeve, L, y0 + h);
-    for (const r of L.risers) addBox(sleeve, m.hole, r.points[0].x - 47, y0 + h, r.points[0].z - 6, 94, 0.4, 12);
+    for (const r of L.risers) addBox(sleeve, m.hole, r.through.x - 47, y0 + h, r.through.z - 6, 94, 0.4, 12);
     addBox(g, m.chassis, s, y0, 0, W - s, w, D, { shell: true, info });
-    this.meshPanel(g, 'xy', s, y0, W - s, h, D - 0.5, info);
     this.meshPanel(g, 'xy', s, y0, W - s, h, 0.5, info);
-    addBox(g, m.chassis, W - w, y0, 0, w, h, D, { shell: true, info, cast: true });
+    if (L.compact) {
+      // Solid band with the name along the bottom of the front, mesh above.
+      const band = 30;
+      addBox(g, m.chassis, s, y0, D - w, W - s, band, w, { shell: true, info, cast: true });
+      this.meshPanel(g, 'xy', s, y0 + band, W - s, h - band, D - 0.5, info);
+      this.logo(g, L, y0 + band / 2);
+      this.meshPanel(g, 'zy', 0, y0, D - 10, h, W - 0.5, info);
+    } else {
+      this.meshPanel(g, 'xy', s, y0, W - s, h, D - 0.5, info);
+      addBox(g, m.chassis, W - w, y0, 0, w, h, D, { shell: true, info, cast: true });
+    }
+    const names = ['PSU'];
+    if (L.compact) L.power.psus.forEach((p, i) => this.buildPsu(g, L, p, L.budget.supplies[i], names[i]));
     addBox(g, m.trim, W - 10, y0, D - 10, 10, h - w, 10, { radius: 2, shell: true, cast: true });
-    const handle = addBox(g, m.silver, W, y0 + h / 2 - 8, D / 2 - 70, 10, 16, 140, { radius: 4 });
+    // Compact: keep the handle above the PSU's fan grille.
+    const handleY = L.compact ? y0 + h - 34 : y0 + h / 2 - 8;
+    const handle = addBox(g, m.silver, W, handleY, D / 2 - 70, 10, 16, 140, { radius: 4 });
     handle.userData.info = { title: 'Drawer handle', detail: 'Unplug the risers and pull: the board, CPU cooler and RAM come out together.' };
 
     // Motherboard.
@@ -675,11 +741,13 @@ export class TowerScene {
       fan.userData.info = { title: `Front intake fan, ${f.size} mm`, detail: dr.cooler === 'aio' ? 'Pushes room air through the radiator into the drawer.' : 'Feeds the CPU cooler and VRMs.' };
       g.add(fan);
     }
-    const rearX = dr.cooler === 'tower' ? cx : s + (W - s) / 2;
-    const rearFan = caseFan(m, 120, this.spinners);
-    rearFan.position.set(Math.min(Math.max(rearX, s + 70), W - 70), y0 + Math.max(h / 2, 70), w + 2 + C.fanT / 2);
-    rearFan.userData.info = { title: 'Rear exhaust fan, 120 mm', detail: 'Pulls warm air out of the drawer.' };
-    g.add(rearFan);
+    if (dr.rearFan) {
+      const rearX = dr.cooler === 'tower' ? cx : s + (W - s) / 2;
+      const rearFan = caseFan(m, 120, this.spinners);
+      rearFan.position.set(Math.min(Math.max(rearX, s + 70), W - 70), y0 + Math.max(h / 2, 70), w + 2 + C.fanT / 2);
+      rearFan.userData.info = { title: 'Rear exhaust fan, 120 mm', detail: 'Pulls warm air out of the drawer.' };
+      g.add(rearFan);
+    }
   }
 
   buildGpuModule(L) {
@@ -688,18 +756,24 @@ export class TowerScene {
     const { W, D } = L;
     const gm = L.gpu;
     const top = gm.y0 + gm.h;
-    const s = C.spine, w = C.wall;
+    const s = L.spine, w = C.wall;
+    const pl = gm.plenumH;
     const n = gm.cards.length;
-    const info = { title: 'GPU module', detail: `${W} × ${D} × ${gm.h} mm. ${n} card${n > 1 ? 's' : ''} stand on PCIe 4.0 risers behind the glass. Air comes in through the mesh band and side wall, rises between the cards and leaves through the roof.` };
+    const air = pl
+      ? 'Air comes in through the mesh band and side wall, rises between the cards and leaves through the roof.'
+      : 'Side fans push air along the gaps in front of each card; the roof fans pull it out.';
+    const info = { title: 'GPU module', detail: `${W} × ${D} × ${gm.h} mm. ${n} card${n > 1 ? 's' : ''} stand on PCIe 4.0 risers behind the glass. ${air}` };
 
-    // Plenum band and floor.
-    this.meshPanel(g, 'xy', s, gm.y0, W - s, C.plenumH, D - 0.5, info);
-    this.meshPanel(g, 'xy', s, gm.y0, W - s, C.plenumH, 0.5, info);
-    this.meshPanel(g, 'zy', 0, gm.y0, D, C.plenumH, W - 0.5, info);
     addBox(g, m.chassis, s, gm.y0, 0, W - s, w, D, { shell: true, info });
-    this.meshPanel(g, 'xz', s + C.riserBay, 0, W - s - C.riserBay, D, gm.chamberY0 - w / 2, info);
-    addBox(g, m.chassis, s, gm.chamberY0 - w, 0, C.riserBay, w, D, { shell: true, info });
-    addBox(g, m.trim, s, gm.y0 + C.plenumH - 3, D - 8, W - s, 3, 8, { shell: true });
+    if (pl) {
+      // Plenum band and the perforated floor over the intake fans.
+      this.meshPanel(g, 'xy', s, gm.y0, W - s, pl, D - 0.5, info);
+      this.meshPanel(g, 'xy', s, gm.y0, W - s, pl, 0.5, info);
+      this.meshPanel(g, 'zy', 0, gm.y0, D, pl, W - 0.5, info);
+      this.meshPanel(g, 'xz', s + C.riserBay, 0, W - s - C.riserBay, D, gm.chamberY0 - w / 2, info);
+      addBox(g, m.chassis, s, gm.chamberY0 - w, 0, C.riserBay, w, D, { shell: true, info });
+      addBox(g, m.trim, s, gm.y0 + pl - 3, D - 8, W - s, 3, 8, { shell: true });
+    }
 
     // Walls and roof.
     addBox(g, m.chassis, s, gm.chamberY0 - w, 0, W - s, top - gm.chamberY0 + w, w, { shell: true, info, cast: true });
@@ -715,7 +789,7 @@ export class TowerScene {
     for (const f of gm.floorFans.fans) {
       const fan = caseFan(m, gm.floorFans.size, this.spinners);
       fan.rotation.x = -Math.PI / 2;
-      fan.position.set(f.a, gm.y0 + C.plenumH + C.fanT / 2, f.b);
+      fan.position.set(f.a, gm.y0 + pl + C.fanT / 2, f.b);
       fan.userData.info = fanInfo('Floor intake', gm.floorFans.size);
       g.add(fan);
     }
@@ -740,7 +814,7 @@ export class TowerScene {
       const riser = L.risers[c.index];
       const cInfo = {
         title: `GPU ${c.index + 1}: ${card.name}`,
-        detail: `${card.l} × ${card.h} × ${card.t} mm, ${card.watts} W, ${card.pins} × 8-pin. Riser to slot ${riser.slot} (${riser.lanes}), about ${riser.length} mm: buy ${riser.buy ?? '600+'} mm.`,
+        detail: `${card.l} × ${card.h} × ${card.t} mm, ${L.cardWatts} W${L.cardWatts < card.watts ? ' (capped)' : ''}, ${card.pins} × 8-pin. Riser to slot ${riser.slot} (${riser.lanes}), about ${riser.length} mm: buy ${riser.buy ?? '600+'} mm.`,
       };
       const cg = this.buildCard(card, c, cInfo);
       g.add(cg);
@@ -772,9 +846,9 @@ export class TowerScene {
 
     // Glass door, hinged on the front-right post.
     const glassW = W - s - 10;
-    const glassH = top - (gm.y0 + C.plenumH);
+    const glassH = top - (gm.y0 + pl);
     const pivot = new THREE.Group();
-    pivot.position.set(W - 10, gm.y0 + C.plenumH, D - C.glass / 2);
+    pivot.position.set(W - 10, gm.y0 + pl, D - C.glass / 2);
     g.add(pivot);
     const gi = { title: 'Tempered glass door', detail: 'Hinged on the right edge. Open it to reach the cards and risers.' };
     const pane = new THREE.Mesh(new THREE.BoxGeometry(glassW, glassH, C.glass), m.glass);
@@ -890,11 +964,17 @@ export class TowerScene {
   buildFlows(L) {
     const { W, D } = L;
     const gm = L.gpu;
-    const s = C.spine;
+    const s = L.spine;
     const top = gm.y0 + gm.h;
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const add = (group, paths, count) => { if (paths.length) this.flows.push(new Flow(group, paths, count)); };
+
+    // GPU module: floor intake (stacked) and side intake rise through the
+    // gap in front of each card and leave through the roof.
     const gpuPaths = [];
-    const fanXs = gm.floorFans.fans.length ? [...new Set(gm.floorFans.fans.map((f) => f.a))] : [W - 80];
+    const fanXs = [...new Set(gm.floorFans.fans.map((f) => f.a))];
+    const sideYs = gm.floorFans.fans.length ? [0.55] : [0.3, 0.6, 0.9];
+    const sideXs = gm.floorFans.fans.length ? [s + 120, s + 220] : [s + 110, s + 190, s + 270];
     gm.cards.forEach((c, i) => {
       const gap = i === 0 ? L.cfg.glassGap : L.cfg.cardGap;
       const zg = c.z0 + c.t + gap / 2;
@@ -906,32 +986,46 @@ export class TowerScene {
         }
       }
       if (gm.sideFans.fans.length) {
-        const y = gm.cardY0 + c.h * 0.55;
-        for (const xEnd of [s + 120, s + 220]) {
-          gpuPaths.push({ points: [V(W + 60, y, zg), V(xEnd, y, zg), V(xEnd, gm.cardTop + 22, zc), V(xEnd, top + 90, zc)], heat: [1, 2] });
+        for (const fy of sideYs) {
+          const y = gm.cardY0 + c.h * fy;
+          for (const xEnd of sideXs) {
+            gpuPaths.push({ points: [V(W + 60, y, zg), V(xEnd, y, zg), V(xEnd, gm.cardTop + 22, zc), V(xEnd, top + 90, zc)], heat: [1, 2] });
+          }
         }
       }
     });
-    this.flows.push(new Flow(this.g.gpu, gpuPaths, 5));
+    add(this.g.gpu, gpuPaths, 5);
 
+    // Drawer: front to back through the CPU cooler.
     const dr = L.drawer;
     const dy = dr.y0 + dr.h / 2;
+    const cx = dr.board.x0 + dr.board.socket.u;
+    const lanes = dr.fans.length ? dr.fans.map((f) => f.x) : [cx - 40, cx + 40];
     const drawerPaths = [];
-    for (const f of dr.fans) {
+    for (const x of lanes) {
       for (const dyy of [-25, 25]) {
-        drawerPaths.push({ points: [V(f.x, dy + dyy, D + 60), V(f.x, dy + dyy, D - 60), V(f.x, dy + dyy * 0.6, dr.board.z0 + dr.board.socket.v), V(f.x, dy + dyy, -70)], heat: [1, 2], speed: 200 });
+        drawerPaths.push({ points: [V(x, dy + dyy, D + 60), V(x, dy + dyy, D - 60), V(x, dy + dyy * 0.6, dr.board.z0 + dr.board.socket.v), V(x, dy + dyy, -70)], heat: [1, 2], speed: 200 });
       }
     }
-    this.flows.push(new Flow(this.g.drawer, drawerPaths, 6));
-
+    // PSU: stacked supplies breathe in through the floor and out through the
+    // spine; the compact one breathes in from the right and out the rear.
     const powerPaths = [];
+    const psuPaths = [];
     for (const p of L.power.psus) {
-      for (const dz of [-35, 35]) {
-        const x = p.x0 + p.l * 0.55, z = p.z0 + p.w / 2 + dz;
-        powerPaths.push({ points: [V(x, 2, z), V(x, p.y0 + p.h * 0.5, z), V(p.x0 + 20, p.y0 + p.h * 0.5, z), V(-80, p.y0 + p.h * 0.5, z)], heat: [1, 2], speed: 160 });
+      if (p.inlet === '-x') {
+        for (const dz of [-35, 35]) {
+          const x = p.x0 + p.sx * 0.55, z = p.z0 + p.sz / 2 + dz, y = p.y0 + p.sy * 0.5;
+          powerPaths.push({ points: [V(x, 2, z), V(x, y, z), V(p.x0 + 20, y, z), V(-80, y, z)], heat: [1, 2], speed: 160 });
+        }
+      } else {
+        for (const dy2 of [-30, 30]) {
+          const y = p.y0 + p.sy / 2 + dy2, x = p.x0 + p.sx / 2, z = p.z0 + p.sz * 0.5;
+          psuPaths.push({ points: [V(W + 60, y, z), V(x, y, z), V(x, y, p.z0 + 10), V(x, y, -70)], heat: [1, 2], speed: 160 });
+        }
       }
     }
-    this.flows.push(new Flow(this.g.power, powerPaths, 6));
+    add(this.g.drawer, [...drawerPaths, ...psuPaths], 6);
+    add(this.g.power, powerPaths, 6);
   }
 
   // ------------------------------------------------------------- state
@@ -971,7 +1065,8 @@ export class TowerScene {
     const radius = 0.5 * Math.hypot(L.W + 140, L.D + 120, L.H + extraH);
     const vfov = THREE.MathUtils.degToRad(this.camera.fov);
     const hfov = 2 * Math.atan(Math.tan(vfov / 2) * this.camera.aspect);
-    const dist = (radius / Math.sin(Math.min(vfov, hfov) / 2)) * 1.12;
+    const margin = this.host.clientWidth < 600 ? 0.98 : 1.12;
+    const dist = (radius / Math.sin(Math.min(vfov, hfov) / 2)) * margin;
     const pos = target.clone().addScaledVector(dir, dist);
     if (!animate) {
       this.camera.position.copy(pos);
