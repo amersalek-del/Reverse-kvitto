@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>XTX Tower: modular multi-GPU chassis mockup</title>
+    <meta name="description" content="Interactive 3D mockup of a stacked, modular PC case for three Radeon RX 7900 XTX cards, with power, riser and airflow checks." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23181b20'/><rect x='9' y='5' width='14' height='7' rx='1.5' fill='%23ff5b45'/><rect x='9' y='14' width='14' height='6' rx='1.5' fill='%238b95a3'/><rect x='9' y='22' width='14' height='5' rx='1.5' fill='%23555d69'/></svg>" />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.187.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="app">
+      <section class="stage" aria-label="3D model">
+        <div id="viewport" class="viewport"></div>
+        <header class="stage-head">
+          <h1>XTX Tower</h1>
+          <p id="headline">Loading model…</p>
+        </header>
+        <div class="toolbar" role="toolbar" aria-label="View controls">
+          <div class="group">
+            <button type="button" data-toggle="explode" aria-pressed="false">Explode</button>
+            <button type="button" data-toggle="drawer" aria-pressed="false">Slide drawer</button>
+            <button type="button" data-toggle="glass" aria-pressed="false">Open glass</button>
+          </div>
+          <div class="group">
+            <button type="button" data-toggle="airflow" aria-pressed="false">Airflow</button>
+            <button type="button" data-toggle="xray" aria-pressed="false">X-ray</button>
+            <button type="button" data-toggle="dims" aria-pressed="true">Sizes</button>
+            <button type="button" data-toggle="spin" aria-pressed="false">Spin</button>
+          </div>
+          <div class="group">
+            <button type="button" data-view="iso">3/4</button>
+            <button type="button" data-view="front">Front</button>
+            <button type="button" data-view="io">I/O side</button>
+            <button type="button" data-view="top">Top</button>
+          </div>
+        </div>
+        <div id="tooltip" class="tooltip" role="status" hidden></div>
+        <div id="fallback" class="fallback" hidden>
+          <p><strong>The 3D view could not start.</strong></p>
+          <p id="fallback-reason">This browser has no WebGL, or the three.js library could not load from cdn.jsdelivr.net.</p>
+          <p>The checks on the right still work.</p>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div id="status" class="status" aria-live="polite"></div>
+
+        <form id="config" autocomplete="off">
+          <fieldset>
+            <legend>Graphics cards</legend>
+            <label class="field">
+              <span>Card</span>
+              <select name="gpu"></select>
+            </label>
+            <p id="gpu-spec" class="hint"></p>
+            <div id="custom-gpu" class="grid" hidden>
+              <label class="field"><span>Length, mm</span><input type="number" name="gpuL" min="150" max="420" step="1" /></label>
+              <label class="field"><span>Height, mm</span><input type="number" name="gpuH" min="90" max="180" step="1" /></label>
+              <label class="field"><span>Thickness, mm</span><input type="number" name="gpuT" min="18" max="90" step="1" /></label>
+              <label class="field"><span>Board power, W</span><input type="number" name="gpuWatts" min="50" max="700" step="5" /></label>
+              <label class="field"><span>8-pin plugs</span><input type="number" name="gpuPins" min="0" max="4" step="1" /></label>
+            </div>
+            <div class="field">
+              <span id="count-label">Number of cards</span>
+              <div class="seg" role="radiogroup" aria-labelledby="count-label">
+                <label><input type="radio" name="gpuCount" value="1" /><span>1</span></label>
+                <label><input type="radio" name="gpuCount" value="2" /><span>2</span></label>
+                <label><input type="radio" name="gpuCount" value="3" /><span>3</span></label>
+                <label><input type="radio" name="gpuCount" value="4" /><span>4</span></label>
+              </div>
+            </div>
+            <label class="field range">
+              <span>Air gap between cards <output data-for="cardGap"></output></span>
+              <input type="range" name="cardGap" min="10" max="60" step="1" />
+            </label>
+            <label class="field range">
+              <span>Glass to front card <output data-for="glassGap"></output></span>
+              <input type="range" name="glassGap" min="10" max="60" step="1" />
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Board and CPU</legend>
+            <label class="field">
+              <span>Motherboard</span>
+              <select name="board"></select>
+            </label>
+            <label class="field">
+              <span>CPU cooler</span>
+              <select name="cooler">
+                <option value="tower">Tower air cooler</option>
+                <option value="aio">AIO, radiator behind the drawer front</option>
+              </select>
+            </label>
+            <label class="field range" id="cooler-height">
+              <span>Cooler height <output data-for="coolerH"></output></span>
+              <input type="range" name="coolerH" min="120" max="175" step="1" />
+            </label>
+            <label class="field">
+              <span>CPU power under load, W</span>
+              <input type="number" name="cpuWatts" min="35" max="600" step="5" />
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Power</legend>
+            <div class="field">
+              <span id="psu-label">Power supplies</span>
+              <div class="seg" role="radiogroup" aria-labelledby="psu-label">
+                <label><input type="radio" name="psuMode" value="single" /><span>One</span></label>
+                <label><input type="radio" name="psuMode" value="dual" /><span>Two</span></label>
+              </div>
+            </div>
+            <div class="grid">
+              <label class="field">
+                <span>Rating, each</span>
+                <select name="psuWatts"></select>
+              </label>
+              <label class="field">
+                <span>8-pin outputs, each</span>
+                <input type="number" name="psuPcie" min="0" max="16" step="1" />
+              </label>
+            </div>
+            <label class="field range">
+              <span>PSU length <output data-for="psuL"></output></span>
+              <input type="range" name="psuL" min="140" max="220" step="5" />
+            </label>
+            <label class="field">
+              <span>Wall circuit</span>
+              <select name="mains"></select>
+            </label>
+          </fieldset>
+          <button type="button" id="reset" class="link">Reset to defaults</button>
+        </form>
+
+        <section id="report" class="report" aria-label="Checks"></section>
+
+        <details class="about">
+          <summary>How the design works</summary>
+          <p>Three modules stack on a shared <strong>spine</strong> on the left. The spine carries every port (mains, board I/O and all GPU outputs), so all cables leave on one side. It also hides the power cables on their way up to the cards.</p>
+          <ul>
+            <li><strong>Power module (bottom):</strong> one or two ATX supplies lying flat. They breathe through the floor and their mains inlets face the spine.</li>
+            <li><strong>Board drawer (middle):</strong> the motherboard lies flat on a tray that slides out to the right with the CPU cooler and RAM. Air flows front to back.</li>
+            <li><strong>GPU module (top):</strong> the cards stand upright behind a hinged glass door, each on a PCIe 4.0 riser from the board below. Air enters through the mesh band and side wall, rises through the gaps in front of each card's fans and leaves through the roof fans. The card fins point the same way, so the chimney works with the coolers, not against them.</li>
+          </ul>
+          <h3>How the numbers are worked out</h3>
+          <ul>
+            <li>Sustained DC load = card board power + CPU + 60 W for board, RAM and drives + 3 W per fan. Recommended capacity is load x 1.3, which leaves room for short GPU power spikes. Each supply should stay under about 80 %.</li>
+            <li>With two supplies, PSU A feeds the board and CPU, and every card takes all of its 8-pin plugs from one supply. Join the two with a sync adapter and plug both into the same outlet.</li>
+            <li>Wall draw assumes 92 % efficiency at 230 V and 90 % at 120 V. A circuit should stay under 80 % of its breaker rating.</li>
+            <li>Riser length follows the cable path from slot to socket, plus 20 mm, rounded up to a stock size.</li>
+            <li>Airflow is rough: fans are taken at 50 % of their free-air rating (120 m³/h for 140 mm, 100 m³/h for 120 mm) to allow for mesh and fins. The temperature rise is GPU heat ÷ (1.2 kJ/m³K × flow).</li>
+          </ul>
+          <h3>Card sizes</h3>
+          <ul class="sources">
+            <li>AMD reference: 287 × 123 × 51 mm, 355 W (<a href="https://www.techpowerup.com/301084/amd-radeon-rx-7900-xtx-reference-design-pcb-and-cooler-detailed">TechPowerUp</a>, <a href="https://www.tomshardware.com/reviews/amd-radeon-rx-7900-xtx-and-xt-review-shooting-for-the-top/2">Tom's Hardware</a>)</li>
+            <li>Sapphire NITRO+ Vapor-X: 320 × 136 × 72 mm, 420 W primary BIOS (<a href="https://www.kitguru.net/components/graphic-cards/dominic-moass/sapphire-rx-7900-xtx-nitro-review/2">KitGuru</a>)</li>
+            <li>ASUS TUF Gaming OC: 353 × 158 × 73 mm (<a href="https://www.asus.com/motherboards-components/graphics-cards/tuf-gaming/tuf-rx7900xtx-o24g-gaming/techspec/">ASUS</a>). ASUS publishes no board power, so the model assumes 400 W.</li>
+          </ul>
+          <p class="hint">Slot positions, lane splits and riser lengths are typical values. Check your motherboard manual and measure before you buy risers or cut metal.</p>
+        </details>
+      </aside>
+    </div>
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
