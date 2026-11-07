@@ -3,7 +3,7 @@
 import { computeLayout, normalizeConfig, DEFAULTS } from './layout.js';
 import { GPUS, BOARDS, LAYOUTS, PSU_RATINGS, MAINS } from './specs.js';
 
-const STORE_KEY = 'xtx-tower:v1';
+const STORE_KEY = 'xtx-tower:v2';
 const $ = (sel) => document.querySelector(sel);
 const form = $('#config');
 const viewport = $('#viewport');
