@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { computeLayout, fanGrid, normalizeConfig, C } from '../js/layout.js';
 import { GPUS, LAYOUTS, RISER_LENGTHS } from '../js/specs.js';
 
-test('default build is three XFX Magnetic Air cards in the compact layout', () => {
+test('default build is three XFX Magnetic Air cards in the staggered layout', () => {
   const L = computeLayout({});
   assert.equal(L.n, 3);
-  assert.equal(L.mode, 'compact');
+  assert.equal(L.mode, 'staggered');
   assert.equal(L.card.key, 'magair');
   assert.deepEqual([L.card.l, L.card.h, L.card.t], [345, 135, 68]);
-  assert.equal(L.spine, LAYOUTS.compact.spine);
+  assert.equal(L.spine, LAYOUTS.staggered.spine);
   assert.ok(L.W >= L.spine + L.card.l + C.tailGap);
   // Modules stack without gaps or overlap.
   assert.equal(L.drawer.y0, L.power.y0 + L.power.h);
@@ -29,8 +29,58 @@ test('compact is lower and smaller than stacked with the same parts', () => {
   }
 });
 
+test('staggered modules stick out, each sized to its contents', () => {
+  const L = computeLayout({ layout: 'staggered', reach: 60 });
+  const { gpu, drawer, pod } = L;
+  assert.ok(gpu.W - drawer.W >= 100, 'GPU module overhangs the drawer to the right');
+  assert.equal(drawer.D - gpu.D, 60, 'drawer sticks out past the glass');
+  assert.ok(pod.x1 - gpu.W >= 50, 'PSU pod sticks out past the GPU module');
+  assert.equal(pod.x0, drawer.W, 'pod hangs on the drawer');
+  assert.equal(pod.z1, drawer.D, 'pod is flush with the drawer front');
+  assert.equal(L.W, pod.x1);
+  assert.equal(L.D, drawer.D);
+  // The modules themselves take far less room than their bounding box.
+  assert.ok(L.bodyL < L.volumeL * 0.8);
+  assert.ok(L.bodyL < computeLayout({ layout: 'stacked' }).bodyL * 0.7);
+});
+
+test('staggered overhang fans breathe from below without hitting the pod', () => {
+  for (const cfg of [{}, { cooler: 'aio' }, { coolerH: 120 }]) {
+    const L = computeLayout({ layout: 'staggered', ...cfg });
+    const fans = L.gpu.underFans;
+    assert.ok(fans.fans.length >= 2, 'overhang fans');
+    const half = fans.size / 2;
+    for (const f of fans.fans) {
+      assert.ok(f.a - half >= L.drawer.W, 'clear of the drawer');
+      assert.ok(f.a + half <= L.gpu.W - C.wall, 'inside the GPU module');
+    }
+    const fanBottom = L.gpu.y0 - C.fanT;
+    assert.ok(fanBottom - (L.pod.y0 + L.pod.h) >= C.underGap - 1e-9, 'air gap above the pod');
+  }
+  // Short cards leave no overhang to put fans in.
+  assert.equal(computeLayout({ layout: 'staggered', gpu: 'reference' }).gpu.underFans.fans.length, 0);
+});
+
+test('staggered overhang fans improve on compact airflow', () => {
+  const staggered = computeLayout({ layout: 'staggered' });
+  const compact = computeLayout({ layout: 'compact' });
+  assert.ok(staggered.airflow.deltaT < compact.airflow.deltaT);
+});
+
+test('staggered PSU lies flat in its pod, fan up', () => {
+  for (const cfg of [{}, { psuL: 230 }, { board: 'eatx' }]) {
+    const L = computeLayout({ layout: 'staggered', ...cfg });
+    const [p] = L.power.psus;
+    const pod = L.pod;
+    assert.equal(p.fan, '+y');
+    assert.ok(p.x0 >= pod.x0 + C.wall && p.x0 + p.sx <= pod.x1 - C.wall);
+    assert.ok(p.z0 >= pod.z0 + C.wall && p.z0 + p.sz <= pod.z1 - C.wall);
+    assert.ok(p.y0 + p.sy <= pod.y0 + pod.h - C.wall - C.podTop + 1e-9);
+  }
+});
+
 test('compact PSU stands beside the board inside the drawer', () => {
-  for (const cfg of [{}, { cooler: 'aio' }, { board: 'eatx' }, { psuL: 230 }]) {
+  for (const cfg of [{}, { cooler: 'aio' }, { board: 'eatx' }, { psuL: 230 }].map((c) => ({ layout: 'compact', ...c }))) {
     const L = computeLayout(cfg);
     const [p] = L.power.psus;
     const b = L.drawer.board;
@@ -42,25 +92,27 @@ test('compact PSU stands beside the board inside the drawer', () => {
   }
 });
 
-test('compact allows only one supply; stacked allows two', () => {
+test('only the stacked layout allows two supplies', () => {
   assert.equal(normalizeConfig({ layout: 'compact', psuMode: 'dual' }).psuMode, 'single');
+  assert.equal(normalizeConfig({ layout: 'staggered', psuMode: 'dual' }).psuMode, 'single');
   assert.equal(normalizeConfig({ layout: 'stacked', psuMode: 'dual' }).psuMode, 'dual');
 });
 
 test('cards keep the requested gaps and stay inside the GPU module', () => {
-  for (const layout of ['compact', 'stacked']) {
+  for (const layout of ['staggered', 'compact', 'stacked']) {
     for (const gpu of ['magair', 'reference', 'nitro', 'tuf']) {
       for (const gpuCount of [1, 2, 3, 4]) {
         const L = computeLayout({ layout, gpu, gpuCount, cardGap: 30, glassGap: 25 });
         const cards = L.gpu.cards;
-        assert.ok(Math.abs(L.D - C.glass - 25 - (cards[0].z0 + cards[0].t)) < 1e-9, 'front gap');
+        assert.ok(Math.abs(L.gpu.D - C.glass - 25 - (cards[0].z0 + cards[0].t)) < 1e-9, 'front gap');
         for (let i = 1; i < cards.length; i++) {
           const gap = cards[i - 1].z0 - (cards[i].z0 + cards[i].t);
           assert.ok(Math.abs(gap - 30) < 1e-9, `gap between card ${i} and ${i + 1}`);
         }
         const rear = cards[cards.length - 1];
         assert.ok(rear.z0 >= C.wall + C.rearGap - 1e-9, 'rear clearance');
-        assert.ok(rear.x0 + rear.l <= L.W - C.wall, 'card length');
+        assert.ok(rear.x0 + rear.l <= L.gpu.W - C.wall, 'card length');
+        assert.ok(L.drawer.D >= cards[0].zPcb, 'risers come up through the drawer lid');
         assert.ok(L.gpu.cardTop + C.cableTop <= L.H, 'cable room above the cards');
       }
     }
@@ -68,7 +120,7 @@ test('cards keep the requested gaps and stay inside the GPU module', () => {
 });
 
 test('risers pair front cards with front slots and round up to a stock length', () => {
-  for (const layout of ['compact', 'stacked']) {
+  for (const layout of ['staggered', 'compact', 'stacked']) {
     const L = computeLayout({ layout, gpuCount: 3 });
     assert.deepEqual(L.risers.map((r) => r.slot), [7, 4, 1]);
     for (const r of L.risers) {
@@ -79,8 +131,9 @@ test('risers pair front cards with front slots and round up to a stock length', 
   }
 });
 
-test('compact risers run between the CPU cooler and the drawer lid', () => {
-  const L = computeLayout({ layout: 'compact', cooler: 'tower', coolerH: 160 });
+test('compact and staggered risers run between the CPU cooler and the drawer lid', () => {
+  for (const layout of ['compact', 'staggered']) {
+  const L = computeLayout({ layout, cooler: 'tower', coolerH: 160 });
   const coolerTop = L.drawer.board.top + 160;
   for (const r of L.risers) {
     const run = r.points[1].y;
@@ -88,6 +141,7 @@ test('compact risers run between the CPU cooler and the drawer lid', () => {
     assert.ok(run - 1.5 > coolerTop, 'clears the cooler');
     assert.ok(run < L.gpu.y0 - C.wall, 'under the lid');
     assert.deepEqual(r.through, { x: r.points[3].x, z: r.points[3].z });
+  }
   }
 });
 
@@ -159,7 +213,7 @@ test('bad input is clamped instead of breaking the layout', () => {
   assert.equal(cfg.cardGap, 5);
   assert.equal(cfg.board, 'atx');
   assert.equal(cfg.psuWatts, 1600);
-  assert.equal(cfg.layout, 'compact');
+  assert.equal(cfg.layout, 'staggered');
   assert.equal(cfg.gpu, 'magair');
   assert.equal(cfg.gpuLimit, 50);
   const L = computeLayout({ gpu: 'custom', gpuL: 9999, gpuH: 1, gpuT: 'abc' });

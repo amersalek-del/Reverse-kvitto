@@ -77,10 +77,15 @@ export const SLOT_SETS = [[1], [1, 4], [1, 4, 7], [1, 3, 5, 7]];
 export const PSU_RATINGS = [850, 1000, 1200, 1300, 1500, 1600, 2000];
 
 export const LAYOUTS = {
+  staggered: {
+    name: 'Staggered',
+    spine: 30,
+    note: 'Each module is sized to what is inside, so parts stick out: the GPU module overhangs the drawer to the right with intake fans underneath, the drawer sticks out past the glass, and the PSU pod sticks out at the bottom right.',
+  },
   compact: {
     name: 'Compact',
     spine: 30,
-    note: 'Two modules. One PSU stands on its side next to the board, the GPU module takes air in from the side.',
+    note: 'Two flush modules. One PSU stands on its side next to the board, the GPU module takes air in from the side.',
   },
   stacked: {
     name: 'Stacked',
@@ -100,4 +105,4 @@ export const MAINS = {
 export const RISER_LENGTHS = [150, 200, 250, 300, 400, 500, 600];
 
 // Free-air flow of a typical case fan at about 1800-2000 rpm, in m3/h.
-export const FAN_FLOW = { 120: 100, 140: 120 };
+export const FAN_FLOW = { 92: 60, 120: 100, 140: 120 };

@@ -17,7 +17,7 @@ Drag to orbit, scroll or pinch to zoom. Hover over a part (or tap it on a phone)
 | Button | What it does |
 | --- | --- |
 | Explode | Pulls the modules and the spine apart |
-| Slide drawer | Slides the board tray out to the right |
+| Slide drawer | Slides the board tray out (forwards in Staggered, to the right otherwise) |
 | Open glass | Swings the GPU door open |
 | Airflow | Animated air paths: blue intake, orange exhaust |
 | X-ray | Makes the shell see-through |
@@ -25,27 +25,30 @@ Drag to orbit, scroll or pinch to zoom. Hover over a part (or tap it on a phone)
 
 ## The design
 
-Two layouts share the same GPU module and board drawer:
+Three layouts share the same spine, GPU module and board drawer. The default, **Staggered**, sizes each module to what's inside, so parts stick out:
 
 ```
- Compact (default, ~58 L with 3 × MagAir)    Stacked (~96 L)
- ┌────┬──────────────────────────┐           ┌──────┬────────────────────────┐
- │ S  │ GPU module, glass front  │           │  S   │ GPU module             │
- │ P  │ side intake → roof ↑     │           │  P   │ floor + side intake    │
- │ I  ├──────────────────────────┤           │  I   ├────────────────────────┤
- │ N  │ board flat │ PSU on side │           │  N   │ board drawer           │
- │ E  │ drawer ⇢ slides out      │           │  E   ├────────────────────────┤
- └────┴──────────────────────────┘           │      │ power module, 1-2 PSUs │
-                                             └──────┴────────────────────────┘
+ Staggered (default): 488 × 378 × 437 mm, ~57 L of case with 3 × MagAir
+
+        ┌────┬───────────────────────────┐
+        │ S  │ GPU module, glass front   │──┐ overhangs the drawer;
+        │ P  │                           │  │ intake fans hang underneath
+        │ I  ├──────────────────┬────────┴──┘
+        │ N  │ board drawer     │   ↑ air   ┌──────────────┐
+        │ E  │ sticks out front │           │ PSU pod      │ sticks out
+        └────┴──────────────────┘           └──────────────┘ bottom right
 ```
 
-- **Spine (left):** every port leaves the case here: the mains inlet, the board's rear I/O and every GPU output. The hollow column is also the cable chase to the cards. Put this side towards the wall. It's 30 mm thick in Compact and 46 mm in Stacked.
-- **GPU module (top):** the cards stand upright with their fans facing the glass, spaced by a set air gap, each on a PCIe 4.0 riser from the board below. Air flows along the gap in front of each card, rises past the vertical fins and leaves through the roof fans.
-- **Board drawer:** the motherboard lies flat on a tray that slides out with the CPU cooler and RAM. The lid stays in the case.
-- **Compact:** the single PSU stands on its side next to the board and takes mains from the spine through a short internal extension. The GPU module has side intake fans and no floor fans. The risers run just under the drawer lid, over the CPU cooler.
-- **Stacked:** adds a power module for one or two PSUs, plus a mesh intake band and floor fans under the cards. It's about 170 mm taller but cools better and can split the load over two supplies.
+- **Spine (left):** every port leaves the case here: the mains inlet, the board's rear I/O and every GPU output. The hollow column is also the cable chase to the cards. Put this side towards the wall.
+- **GPU module (top):** the cards stand upright with their fans facing the glass, spaced by a set air gap, each on a PCIe 4.0 riser from the board below. Air flows along the gap in front of each card, rises past the vertical fins and leaves through the roof fans. In Staggered, the long cards make it overhang the drawer, and that overhang carries intake fans that breathe from below.
+- **Board drawer:** the motherboard lies flat on a tray that slides out with the CPU cooler and RAM; the lid stays in the case. In Staggered it sticks out past the glass (a slider sets how far), the exposed strip of lid is mesh, and it slides out forwards.
+- **PSU pod (Staggered):** a low block at the bottom right that sticks out past the GPU module and carries the name. The PSU lies flat and breathes through the pod's mesh top.
+- **Compact:** the same parts in two flush boxes, with the PSU standing on its side next to the board. About 417 × 321 × 437 mm.
+- **Stacked:** adds a power module for one or two PSUs plus floor fans under the cards. About 170 mm taller.
 
 With three Magnetic Air cards at stock power, a single 1600 W PSU runs at about 94 %. The page suggests a per-card power cap that brings it under 80 % (about 310 W), a bigger supply, or the stacked layout with two supplies.
+
+Staggered and Compact hold about the same amount of case (around 57 L); Staggered spreads it over a wider footprint so the modules can step out.
 
 ## What it checks
 

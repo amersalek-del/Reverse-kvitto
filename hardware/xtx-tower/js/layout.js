@@ -2,7 +2,9 @@
 //
 // Coordinates are millimetres. X runs left to right with the spine at x = 0,
 // Y is up with the floor at y = 0, and Z runs from the rear wall (z = 0) to
-// the glass at the front (z = D).
+// the front. Every module hangs off the spine and is flush at the rear; in
+// the staggered layout each one is sized to its contents, so they stick out
+// by different amounts to the right and front.
 
 import { GPUS, BOARDS, LAYOUTS, SLOT_SETS, MAINS, RISER_LENGTHS, FAN_FLOW } from './specs.js';
 
@@ -27,12 +29,17 @@ export const C = Object.freeze({
   radT: 27,
   psu: Object.freeze({ w: 150, h: 86 }),
   psuStrip: 22,       // compact: room beside the PSU for its fan and cables
+  podSide: 12,        // staggered: room each side of the PSU in its pod
+  podFront: 32,       // staggered: cable room in front of the PSU
+  podTop: 14,         // staggered: gap above the PSU fan under the mesh top
+  underGap: 20,       // staggered: clear air under the overhang fans
   airRhoCp: 1206,     // J/(m3 K) for air at ~20 C
   fanEfficiency: 0.5, // share of free-air flow left after mesh and fins
 });
 
 export const DEFAULTS = Object.freeze({
-  layout: 'compact',
+  layout: 'staggered',
+  reach: 60,
   gpu: 'magair',
   gpuCount: 3,
   gpuLimit: 100,
@@ -70,7 +77,8 @@ export function resolveCard(cfg) {
 
 export function normalizeConfig(input = {}) {
   const cfg = { ...DEFAULTS, ...input };
-  if (!(cfg.layout in LAYOUTS)) cfg.layout = 'compact';
+  if (!(cfg.layout in LAYOUTS)) cfg.layout = 'staggered';
+  cfg.reach = clamp(num(cfg.reach, 60), 0, 120);
   if (!(cfg.gpu in GPUS)) cfg.gpu = 'magair';
   cfg.gpuLimit = clamp(Math.round(num(cfg.gpuLimit, 100)), 50, 100);
   cfg.gpuCount = clamp(Math.round(num(cfg.gpuCount, 3)), 1, 4);
@@ -80,8 +88,8 @@ export function normalizeConfig(input = {}) {
   if (cfg.cooler !== 'aio') cfg.cooler = 'tower';
   cfg.coolerH = clamp(num(cfg.coolerH, 160), 100, 180);
   cfg.cpuWatts = clamp(num(cfg.cpuWatts, 250), 35, 600);
-  // The compact base only has room for one supply, on its side.
-  if (cfg.psuMode !== 'dual' || cfg.layout === 'compact') cfg.psuMode = 'single';
+  // Only the stacked power module has room for two supplies.
+  if (cfg.psuMode !== 'dual' || cfg.layout !== 'stacked') cfg.psuMode = 'single';
   cfg.psuWatts = clamp(num(cfg.psuWatts, 1600), 450, 2800);
   cfg.psuPcie = clamp(Math.round(num(cfg.psuPcie, 9)), 0, 16);
   cfg.psuL = clamp(num(cfg.psuL, 200), 140, 230);
@@ -90,10 +98,10 @@ export function normalizeConfig(input = {}) {
 }
 
 // Lay out a grid of square fans inside a rectangle, choosing the size
-// (140 or 120 mm) that covers the most area.
-export function fanGrid(a0, a1, b0, b1) {
-  let best = { size: 140, cols: 0, rows: 0, area: 0 };
-  for (const size of [140, 120]) {
+// that covers the most area.
+export function fanGrid(a0, a1, b0, b1, sizes = [140, 120]) {
+  let best = { size: sizes[0], cols: 0, rows: 0, area: 0 };
+  for (const size of sizes) {
     const pitch = size + 6;
     const cols = Math.max(0, Math.floor((a1 - a0) / pitch));
     const rows = Math.max(0, Math.floor((b1 - b0) / pitch));
@@ -125,50 +133,87 @@ export function computeLayout(input) {
   const board = BOARDS[cfg.board];
   const mains = MAINS[cfg.mains];
   const mode = LAYOUTS[cfg.layout];
+  const stacked = cfg.layout === 'stacked';
   const compact = cfg.layout === 'compact';
+  const staggered = cfg.layout === 'staggered';
   const n = cfg.gpuCount;
   const { wall } = C;
   const spine = mode.spine;
-  const plenumH = compact ? 0 : C.plenumH;
-  const floorLayer = compact ? 0 : C.fanT;
+  const plenumH = stacked ? C.plenumH : 0;
+  const floorLayer = stacked ? C.fanT : 0;
   const cardWatts = Math.round((card.watts * cfg.gpuLimit) / 100);
+  const aio = cfg.cooler === 'aio';
 
-  // ---- Footprint -------------------------------------------------------
-  // Stacked: front intake fans (or an AIO radiator) inside the drawer front.
-  // Compact: the tower cooler breathes through the front mesh directly.
+  // ---- What each module needs for its contents -------------------------
   const radFront = C.radT + C.fanT + 8;
-  const drawerFront = cfg.cooler === 'aio' ? radFront : compact ? 0 : C.fanT + 8;
-  const boardMargin = compact ? 6 : 12;
-  const depthDrawer = 2 * wall + 2 * boardMargin + board.l + drawerFront;
+  const boardMargin = stacked ? 12 : 6;
+  const boardDepth = 2 * wall + 2 * boardMargin + board.l;
   const stack = n * card.t + (n - 1) * cfg.cardGap;
-  const depthGpu = wall + C.rearGap + stack + cfg.glassGap + C.glass;
-  const depthPsu = compact
-    ? 2 * wall + cfg.psuL + 12
-    : 2 * wall + (cfg.psuMode === 'dual' ? 2 * C.psu.w + 36 : C.psu.w + 24);
-  const D = Math.ceil(Math.max(depthDrawer, depthGpu, depthPsu));
-
+  // At least deep enough for one row of 140 mm roof and side fans.
+  const gpuNeedD = Math.max(wall + C.rearGap + stack + cfg.glassGap + C.glass, 160);
+  const gpuNeedW = spine + card.l + C.tailGap + wall;
   const psuStripW = C.psu.h + C.psuStrip;
-  const W = Math.ceil(Math.max(
-    spine + card.l + C.tailGap + wall,
-    compact
-      ? spine + 4 + board.w + 10 + psuStripW + wall
-      : spine + 4 + board.w + 74 + wall,
-    compact ? 0 : spine + cfg.psuL + 70 + wall,
-    compact ? 0 : spine + C.riserBay + 130 + wall,
-  ));
+  const drawerNeedW = compact
+    ? spine + 4 + board.w + 10 + psuStripW + wall
+    : stacked ? spine + 4 + board.w + 74 + wall : spine + 4 + board.w + 30 + wall;
+
+  // ---- Footprints ------------------------------------------------------
+  let W, D, gpuW, gpuD, drawerW, drawerD, pod = null;
+  if (staggered) {
+    gpuW = Math.ceil(gpuNeedW);
+    gpuD = Math.ceil(gpuNeedD);
+    drawerW = Math.ceil(drawerNeedW);
+    // The drawer sticks out `reach` mm past the glass (and always covers the
+    // cards so every riser comes up through its lid).
+    drawerD = Math.ceil(Math.max(boardDepth + (aio ? radFront : 0), gpuD + cfg.reach));
+    const pw = C.psu.w + 2 * C.podSide + 2 * wall;
+    const pd = cfg.psuL + C.podFront + 6 + 2 * wall;
+    const ph = C.psu.h + 2 * wall + 6 + C.podTop;
+    pod = { x0: drawerW, x1: drawerW + pw, z0: drawerD - pd, z1: drawerD, y0: C.feet, h: ph };
+    W = Math.max(gpuW, pod.x1);
+    D = Math.max(drawerD, gpuD);
+  } else {
+    const drawerFront = aio ? radFront : compact ? 0 : C.fanT + 8;
+    const depthPsu = compact
+      ? 2 * wall + cfg.psuL + 12
+      : 2 * wall + (cfg.psuMode === 'dual' ? 2 * C.psu.w + 36 : C.psu.w + 24);
+    D = Math.ceil(Math.max(boardDepth + drawerFront, gpuNeedD, depthPsu));
+    W = Math.ceil(Math.max(
+      gpuNeedW,
+      drawerNeedW,
+      stacked ? spine + cfg.psuL + 70 + wall : 0,
+      stacked ? spine + C.riserBay + 130 + wall : 0,
+    ));
+    gpuW = drawerW = W;
+    gpuD = drawerD = D;
+  }
 
   // ---- Power module (stacked only) ---------------------------------------
-  const hPower = compact ? 0 : 2 * wall + 8 + C.psu.h + 14;
+  const hPower = stacked ? 2 * wall + 8 + C.psu.h + 14 : 0;
   const powerY0 = C.feet;
   const drawerY0 = powerY0 + hPower;
 
   // ---- Board drawer -----------------------------------------------------
-  const compH = cfg.cooler === 'aio' ? C.pumpH : cfg.coolerH;
+  const compH = aio ? C.pumpH : cfg.coolerH;
   const innerComp = C.trayH + C.standoff + C.pcb + compH + 14;
-  const frontFanSize = cfg.cooler === 'aio' || innerComp < 146 ? 120 : 140;
-  const innerFront = drawerFront > 0 ? frontFanSize + 8 : 0;
+  const frontSpace = drawerD - boardDepth;
+  const wantsFrontFans = aio || frontSpace >= C.fanT + 8;
+  const usableX = (compact ? drawerW - psuStripW : drawerW) - spine - 2 * wall;
   const innerPsu = compact ? C.psu.w + 12 : 0;
-  const hDrawer = Math.ceil(2 * wall + Math.max(innerComp, innerFront, innerPsu));
+  // Staggered: keep the overhang fans clear of the PSU pod underneath.
+  const innerUnder = staggered ? pod.h + C.underGap + C.fanT - 2 * wall : 0;
+
+  // Front fans: pick the size that covers the most of the drawer front.
+  let frontFan = { size: 120, count: 0 };
+  if (wantsFrontFans && !aio) {
+    const innerMax = Math.max(innerComp, innerPsu, innerUnder);
+    for (const size of [140, 120]) {
+      const count = size + 8 <= Math.max(innerMax, 128) ? clamp(Math.floor((usableX - 10) / (size + 6)), 0, 3) : 0;
+      if (count * size * size > frontFan.count * frontFan.size * frontFan.size) frontFan = { size, count };
+    }
+  }
+  const innerFront = aio ? 128 : frontFan.count ? frontFan.size + 8 : 0;
+  const hDrawer = Math.ceil(2 * wall + Math.max(innerComp, innerFront, innerPsu, innerUnder));
   const boardX0 = spine + 4;
   const boardZ0 = wall + boardMargin;
   const boardTop = drawerY0 + wall + C.trayH + C.standoff + C.pcb;
@@ -176,8 +221,10 @@ export function computeLayout(input) {
   // Supplies. `s*` are the box sizes along X/Y/Z; `inlet` is the face with
   // the mains socket and `fan` the face the PSU fan breathes through.
   const psus = [];
-  if (compact) {
-    psus.push({ x0: W - wall - psuStripW + 4, y0: drawerY0 + wall + 6, z0: wall + 6, sx: C.psu.h, sy: C.psu.w, sz: cfg.psuL, inlet: '-z', fan: '+x' });
+  if (staggered) {
+    psus.push({ x0: pod.x0 + wall + C.podSide, y0: pod.y0 + wall + 6, z0: pod.z0 + wall + 6, sx: C.psu.w, sy: C.psu.h, sz: cfg.psuL, inlet: '-z', fan: '+y' });
+  } else if (compact) {
+    psus.push({ x0: drawerW - wall - psuStripW + 4, y0: drawerY0 + wall + 6, z0: wall + 6, sx: C.psu.h, sy: C.psu.w, sz: cfg.psuL, inlet: '-z', fan: '+x' });
   } else {
     const count = cfg.psuMode === 'dual' ? 2 : 1;
     for (let i = 0; i < count; i++) {
@@ -187,21 +234,18 @@ export function computeLayout(input) {
   }
 
   const fanSpanX0 = spine + wall;
-  const fanSpanX1 = compact ? W - wall - psuStripW : W - wall;
-  const usableX = fanSpanX1 - fanSpanX0;
   let drawerFans = [];
   let radiator = null;
-  if (cfg.cooler === 'aio') {
+  if (aio) {
     const radFans = clamp(Math.floor((usableX - 40) / 120), 2, 3);
     const len = radFans * 120 + 37;
     const x0 = fanSpanX0 + (usableX - len) / 2;
-    radiator = { x0, len, fans: radFans, z1: D - wall - 2 };
+    radiator = { x0, len, fans: radFans, z1: drawerD - wall - 2 };
     drawerFans = Array.from({ length: radFans }, (_, i) => ({ x: x0 + 18.5 + 60 + i * 120, size: 120 }));
-  } else if (!compact) {
-    const count = clamp(Math.floor((usableX - 10) / (frontFanSize + 6)), 1, 3);
-    const pitch = frontFanSize + 6;
+  } else if (frontFan.count) {
+    const pitch = frontFan.size + 6;
     const cx = fanSpanX0 + usableX / 2;
-    drawerFans = Array.from({ length: count }, (_, i) => ({ x: cx + (i - (count - 1) / 2) * pitch, size: frontFanSize }));
+    drawerFans = Array.from({ length: frontFan.count }, (_, i) => ({ x: cx + (i - (frontFan.count - 1) / 2) * pitch, size: frontFan.size }));
   }
 
   const slotV = (k) => board.l - 22 - (7 - k) * C.slotPitch;
@@ -217,13 +261,13 @@ export function computeLayout(input) {
 
   const cards = [];
   for (let i = 0; i < n; i++) {
-    const zFront = D - C.glass - cfg.glassGap - i * (card.t + cfg.cardGap);
+    const zFront = gpuD - C.glass - cfg.glassGap - i * (card.t + cfg.cardGap);
     cards.push({ index: i, x0: spine, y0: cardY0, z0: zFront - card.t, l: card.l, h: card.h, t: card.t, zPcb: zFront - card.t + 8 });
   }
 
   // Front card pairs with the front-most slot so the risers never cross.
   // Stacked: the riser bends in the plenum under the GPU chamber.
-  // Compact: it rises to just under the drawer lid, runs over the CPU
+  // Otherwise it rises to just under the drawer lid, runs over the CPU
   // cooler to sit under its card, then goes up through the lid.
   const slotsFrontFirst = [...slotNumbers].sort((a, b) => b - a);
   const fingerX = spine + C.fingerStart + C.fingerLen / 2;
@@ -232,23 +276,31 @@ export function computeLayout(input) {
     const slot = slotsFrontFirst[i];
     const from = { x: boardX0 + C.fingerStart + C.fingerLen / 2, y: boardTop + 11, z: boardZ0 + slotV(slot) };
     const to = { x: fingerX, y: chamberY0, z: c.zPcb };
-    const points = compact
-      ? [from, { x: from.x, y: lidUnderside - 6, z: from.z }, { x: to.x, y: lidUnderside - 6, z: to.z }, to]
-      : [from, { x: from.x, y: gpuY0 - 6, z: from.z }, { x: to.x, y: to.y - 22, z: to.z }, to];
-    const through = compact ? { x: to.x, z: to.z } : { x: from.x, z: from.z };
+    const points = stacked
+      ? [from, { x: from.x, y: gpuY0 - 6, z: from.z }, { x: to.x, y: to.y - 22, z: to.z }, to]
+      : [from, { x: from.x, y: lidUnderside - 6, z: from.z }, { x: to.x, y: lidUnderside - 6, z: to.z }, to];
+    const through = stacked ? { x: from.x, z: from.z } : { x: to.x, z: to.z };
     const length = Math.ceil(riserLength(points) + 20);
     const buy = RISER_LENGTHS.find((l) => l >= length) ?? null;
     return { card: i, slot, lanes: laneFor(board, n, slot, slotNumbers), points, through, length, buy };
   });
 
   const noFans = { size: 140, fans: [] };
-  const floorFans = compact ? noFans : fanGrid(spine + C.riserBay, W - wall, wall, D - C.glass);
-  const roofFans = fanGrid(spine + wall, W - wall, wall, D - C.glass);
-  const sideFans = fanGrid(wall, D - C.glass, chamberY0, cardTop + C.cableTop - 4);
+  const floorFans = stacked ? fanGrid(spine + C.riserBay, W - wall, wall, D - C.glass) : noFans;
+  const roofFans = fanGrid(spine + wall, gpuW - wall, wall, gpuD - C.glass);
+  const sideFans = fanGrid(wall, gpuD - C.glass, chamberY0, cardTop + C.cableTop - 4);
+  // Staggered: the part of the GPU module that sticks out past the drawer
+  // has intake fans hung under its floor, breathing from below.
+  const overhang = staggered && gpuW - drawerW >= 96
+    ? { x0: drawerW, x1: gpuW, z0: 0, z1: gpuD }
+    : null;
+  const underFans = overhang
+    ? fanGrid(overhang.x0 + 2, overhang.x1 - wall - 2, wall + 4, gpuD - C.glass - 4, [140, 120, 92])
+    : noFans;
 
   // ---- Budgets ----------------------------------------------------------
-  const rearFan = !compact;
-  const fanCount = floorFans.fans.length + roofFans.fans.length + sideFans.fans.length
+  const rearFan = stacked;
+  const fanCount = floorFans.fans.length + roofFans.fans.length + sideFans.fans.length + underFans.fans.length
     + drawerFans.length + (rearFan ? 1 : 0) + (cfg.cooler === 'tower' ? 1 : 0);
   const baseWatts = 60 + fanCount * 3;
   const gpuWatts = n * cardWatts;
@@ -290,8 +342,9 @@ export function computeLayout(input) {
     status: circuitPct <= 0.6 ? 'ok' : circuitPct <= 0.8 ? 'caution' : 'bad',
   };
 
-  const intakeFree = (floorFans.fans.length * FAN_FLOW[floorFans.size]) + (sideFans.fans.length * FAN_FLOW[sideFans.size]);
-  const exhaustFree = roofFans.fans.length * FAN_FLOW[roofFans.size];
+  const flowOf = (grid) => grid.fans.length * FAN_FLOW[grid.size];
+  const intakeFree = flowOf(floorFans) + flowOf(sideFans) + flowOf(underFans);
+  const exhaustFree = flowOf(roofFans);
   const flowM3h = C.fanEfficiency * (intakeFree + exhaustFree) / 2;
   const deltaT = flowM3h > 0 ? gpuWatts / (C.airRhoCp * (flowM3h / 3600)) : Infinity;
   const neededM3h = (gpuWatts / (C.airRhoCp * 10)) * 3600;
@@ -314,7 +367,7 @@ export function computeLayout(input) {
       const fixes = [];
       if (s.capForOk && s.capForOk < cardWatts && s.capForOk >= card.watts * 0.5) fixes.push(`cap each card at about ${s.capForOk} W`);
       fixes.push('use a bigger supply');
-      if (compact) fixes.push('switch to the stacked layout with two supplies');
+      if (!stacked) fixes.push('switch to the stacked layout with two supplies');
       warn(s.status === 'bad' ? 'bad' : 'caution',
         `${s.name} runs at ${Math.round(s.pct * 100)} % of ${s.rating} W. Keep sustained load under about 80 % so the cards' short power spikes have headroom: ${joinOr(fixes)}.`);
     }
@@ -338,16 +391,33 @@ export function computeLayout(input) {
       warn('caution', `GPU ${r.card + 1}'s riser needs about ${r.length} mm. Long PCIe 4.0 risers can drop to errors; buy a shielded Gen4 riser or set the slot to Gen3 in BIOS.`);
     }
   }
-  if (!compact && floorFans.fans.length === 0) warn('caution', 'No room for floor intake fans in the GPU module. Make the case wider.');
-  if (compact && cfg.cooler === 'tower' && cfg.coolerH > 165) warn('caution', `A ${cfg.coolerH} mm cooler leaves the risers little room under the drawer lid. 160 mm or lower is easier.`);
+  if (stacked && floorFans.fans.length === 0) warn('caution', 'No room for floor intake fans in the GPU module. Make the case wider.');
+  if (!stacked && cfg.cooler === 'tower' && cfg.coolerH > 165) warn('caution', `A ${cfg.coolerH} mm cooler leaves the risers little room under the drawer lid. 160 mm or lower is easier.`);
+
+  // Feet: corners of the footprint, or of the drawer plus the pod's far end.
+  const feet = staggered
+    ? [[spine + 40, 50], [drawerW - 40, 50], [spine + 40, drawerD - 50], [drawerW - 40, drawerD - 50], [pod.x1 - 34, pod.z0 + 34, 'pod'], [pod.x1 - 34, pod.z1 - 34, 'pod']]
+    : [[60, 50], [W - 60, 50], [60, D - 50], [W - 60, D - 50]];
+
+  // Volume of the modules themselves (the bounding box counts the air
+  // around the parts that stick out).
+  const bodyMm3 = spine * D * (H - C.feet)
+    + (W - spine) * D * hPower
+    + (drawerW - spine) * drawerD * hDrawer
+    + (gpuW - spine) * gpuD * hGpu
+    + (pod ? (pod.x1 - pod.x0) * (pod.z1 - pod.z0) * pod.h : 0);
 
   return {
-    cfg, card, board, n, mode: cfg.layout, compact, spine, cardWatts,
+    cfg, card, board, n, mode: cfg.layout, compact, stacked, staggered, spine, cardWatts,
     W, D, H,
     volumeL: Math.round((W * D * H) / 1e5) / 10,
-    power: { y0: powerY0, h: hPower, psus },
+    bodyL: Math.round(bodyMm3 / 1e5) / 10,
+    slide: staggered ? 'z' : 'x',
+    feet: feet.map(([x, z, on = 'base']) => ({ x, z, on })),
+    power: { y0: powerY0, h: hPower, W, D, psus },
+    pod,
     drawer: {
-      y0: drawerY0, h: hDrawer,
+      y0: drawerY0, h: hDrawer, W: drawerW, D: drawerD,
       board: { x0: boardX0, z0: boardZ0, top: boardTop, w: board.w, l: board.l, socket: board.socket, dimms: board.dimms },
       slots: slotNumbers.map((k) => ({ number: k, z: boardZ0 + slotV(k) })),
       allSlots: [1, 2, 3, 4, 5, 6, 7].map((k) => ({ number: k, z: boardZ0 + slotV(k), used: slotNumbers.includes(k) })),
@@ -355,8 +425,8 @@ export function computeLayout(input) {
       fans: drawerFans, radiator, rearFan,
     },
     gpu: {
-      y0: gpuY0, h: hGpu, plenumH, chamberY0, cardY0, cardTop,
-      cards, floorFans, roofFans, sideFans,
+      y0: gpuY0, h: hGpu, W: gpuW, D: gpuD, plenumH, chamberY0, cardY0, cardTop,
+      cards, floorFans, roofFans, sideFans, underFans, overhang,
     },
     risers,
     budget: { cardWatts, gpuWatts, cpuWatts: cfg.cpuWatts, baseWatts, dcWatts, recommendedWatts, supplies, circuit, pinsTotal: n * card.pins },

@@ -3,7 +3,7 @@
 import { computeLayout, normalizeConfig, DEFAULTS } from './layout.js';
 import { GPUS, BOARDS, LAYOUTS, PSU_RATINGS, MAINS } from './specs.js';
 
-const STORE_KEY = 'xtx-tower:v2';
+const STORE_KEY = 'xtx-tower:v3';
 const $ = (sel) => document.querySelector(sel);
 const form = $('#config');
 const viewport = $('#viewport');
@@ -73,9 +73,10 @@ function syncFormDetails(cfg) {
     ? 'Enter the size of your card. Board power is used for the PSU and airflow checks.'
     : `${preset.l} × ${preset.h} × ${preset.t} mm, ${preset.slots}-slot. ${preset.note}`;
   $('#cooler-height').hidden = cfg.cooler !== 'tower';
-  const compact = cfg.layout === 'compact';
-  for (const r of form.elements.psuMode) r.disabled = compact && r.value === 'dual';
-  $('#psu-hint').hidden = !compact;
+  const stacked = cfg.layout === 'stacked';
+  for (const r of form.elements.psuMode) r.disabled = !stacked && r.value === 'dual';
+  $('#psu-hint').hidden = stacked;
+  $('#reach-field').hidden = cfg.layout !== 'staggered';
   for (const out of form.querySelectorAll('output[data-for]')) {
     const key = out.dataset.for;
     if (key === 'gpuLimit') {
@@ -136,13 +137,14 @@ function schedule() {
 function update() {
   layout = computeLayout(cfg);
   saveConfig(cfg);
-  $('#headline').textContent = `${LAYOUTS[cfg.layout].name} · ${layout.W} × ${layout.D} × ${layout.H} mm · ${layout.volumeL} L · ${layout.n} × RX 7900 XTX`;
-  const otherKey = cfg.layout === 'compact' ? 'stacked' : 'compact';
-  const other = computeLayout({ ...cfg, layout: otherKey });
-  const diff = Math.round((1 - layout.volumeL / other.volumeL) * 100);
-  $('#layout-spec').textContent = `${LAYOUTS[cfg.layout].note} ${layout.W} × ${layout.D} × ${layout.H} mm, ${layout.volumeL} L. `
-    + `${LAYOUTS[otherKey].name} would be ${other.W} × ${other.D} × ${other.H} mm, ${other.volumeL} L`
-    + (diff > 0 ? ` (this is ${diff} % smaller).` : diff < 0 ? ` (${-diff} % smaller).` : '.');
+  $('#headline').textContent = `${LAYOUTS[cfg.layout].name} · ${layout.W} × ${layout.D} × ${layout.H} mm · ${layout.bodyL} L · ${layout.n} × RX 7900 XTX`;
+  // Compare with the other layouts. Volume is the modules themselves, not
+  // the air around the parts that stick out.
+  const others = Object.keys(LAYOUTS).filter((k) => k !== cfg.layout).map((k) => {
+    const o = computeLayout({ ...cfg, layout: k });
+    return `${LAYOUTS[k].name}: ${o.W} × ${o.D} × ${o.H} mm, ${o.bodyL} L`;
+  });
+  $('#layout-spec').textContent = `${LAYOUTS[cfg.layout].note} Takes ${layout.W} × ${layout.D} mm of desk, ${layout.H} mm tall, ${layout.bodyL} L of case. ${others.join('. ')}.`;
   renderReport(layout);
   if (scene) scene.build(layout);
 }
@@ -182,7 +184,7 @@ $('.toolbar').addEventListener('click', (e) => {
     const key = btn.dataset.toggle;
     view[key] = !view[key];
     applyView();
-    if (key === 'explode' && scene) scene.view('iso');
+    if (key === 'explode' && scene) scene.view('right');
   } else if (btn.dataset.view && scene) {
     view.spin = false;
     applyView();
@@ -256,7 +258,7 @@ function renderReport(L) {
     </tr>`).join('');
 
   const fanText = (grid, where) => grid.fans.length ? `${grid.fans.length} × ${grid.size} mm ${where}` : null;
-  const intake = [fanText(L.gpu.floorFans, 'floor'), fanText(L.gpu.sideFans, 'side')].filter(Boolean).join(' + ') || 'none';
+  const intake = [fanText(L.gpu.floorFans, 'floor'), fanText(L.gpu.underFans, 'under the overhang'), fanText(L.gpu.sideFans, 'side')].filter(Boolean).join(' + ') || 'none';
   const exhaust = fanText(L.gpu.roofFans, 'roof') || 'none';
 
   const warnings = L.warnings.length

@@ -38,6 +38,7 @@
           </div>
           <div class="group">
             <button type="button" data-view="iso">3/4</button>
+            <button type="button" data-view="right">Right</button>
             <button type="button" data-view="front">Front</button>
             <button type="button" data-view="io">I/O side</button>
             <button type="button" data-view="top">Top</button>
@@ -60,11 +61,16 @@
             <div class="field">
               <span id="layout-label" class="sr-only">Layout</span>
               <div class="seg" role="radiogroup" aria-labelledby="layout-label">
+                <label><input type="radio" name="layout" value="staggered" /><span>Staggered</span></label>
                 <label><input type="radio" name="layout" value="compact" /><span>Compact</span></label>
                 <label><input type="radio" name="layout" value="stacked" /><span>Stacked</span></label>
               </div>
             </div>
             <p id="layout-spec" class="hint"></p>
+            <label class="field range" id="reach-field">
+              <span>Drawer sticks out past the glass <output data-for="reach"></output></span>
+              <input type="range" name="reach" min="0" max="120" step="5" />
+            </label>
           </fieldset>
 
           <fieldset>
@@ -137,7 +143,7 @@
                 <label><input type="radio" name="psuMode" value="dual" /><span>Two</span></label>
               </div>
             </div>
-            <p id="psu-hint" class="hint" hidden>The compact base has room for one PSU, standing on its side next to the board.</p>
+            <p id="psu-hint" class="hint" hidden>Only the stacked layout has room for two PSUs.</p>
             <div class="grid">
               <label class="field">
                 <span>Rating, each</span>
@@ -168,7 +174,8 @@
           <ul>
             <li><strong>GPU module (top):</strong> the cards stand upright behind a hinged glass door, each on a PCIe 4.0 riser from the board below. Air flows along the gap in front of each card's fans, rises past the fins and leaves through the roof fans.</li>
             <li><strong>Board drawer:</strong> the motherboard lies flat on a tray that slides out to the right with the CPU cooler and RAM. The lid stays in the case.</li>
-            <li><strong>Compact</strong> has two modules. The single PSU stands on its side next to the board and takes mains from the spine through a short internal extension. The GPU module drops the floor fans and takes air in from the side wall. The risers run just under the drawer lid, over the CPU cooler.</li>
+            <li><strong>Staggered</strong> (default) sizes each module to what's inside, so parts stick out. The GPU module overhangs the drawer to the right, and that overhang carries intake fans that breathe from below. The drawer sticks out past the glass, with mesh on the exposed lid, and slides out forwards. A low PSU pod sticks out at the bottom right; the PSU lies flat and breathes through the pod's mesh top.</li>
+            <li><strong>Compact</strong> packs the same parts into two flush modules. The single PSU stands on its side next to the board and takes mains from the spine through a short internal extension. The GPU module drops the floor fans and takes air in from the side wall. The risers run just under the drawer lid, over the CPU cooler.</li>
             <li><strong>Stacked</strong> adds a power module underneath for one or two PSUs, plus a mesh intake band and floor fans under the cards. It's about 170 mm taller but cools better and can split the load over two supplies.</li>
           </ul>
           <h3>How the numbers are worked out</h3>
